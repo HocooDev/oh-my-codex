@@ -65,7 +65,6 @@
     "dist/",
     "crates/",
     "skills/",
-    "prompts/",
     "templates/",
     "src/scripts/",
     "plugins/",

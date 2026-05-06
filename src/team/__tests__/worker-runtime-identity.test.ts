@@ -65,6 +65,12 @@ function withMockPromptModeCodexAllowed<T>(fn: () => T): T {
   }
 }
 
+async function writeRoleSkill(root: string, role: string, body: string): Promise<void> {
+  const roleDir = join(root, '.codex', 'skills', `agent-${role}`);
+  await mkdir(roleDir, { recursive: true });
+  await writeFile(join(roleDir, 'SKILL.md'), `---\nname: agent-${role}\ndescription: test role skill\n---\n\n${body}\n`);
+}
+
 describe('worker runtime identity contract', () => {
   it('keeps low-complexity launch defaults without changing the role lane', () => {
     const args = resolveWorkerLaunchArgsFromEnv(
@@ -79,13 +85,11 @@ describe('worker runtime identity contract', () => {
     const binDir = join(cwd, 'bin');
     const fakeCodexPath = join(binDir, 'codex');
     const captureDir = join(cwd, 'captures');
-    const promptsDir = join(cwd, '.codex', 'prompts');
     await mkdir(binDir, { recursive: true });
     await mkdir(captureDir, { recursive: true });
-    await mkdir(promptsDir, { recursive: true });
-    await writeFile(join(promptsDir, 'explore.md'), '<identity>You are Explorer.</identity>');
-    await writeFile(join(promptsDir, 'style-reviewer.md'), '<identity>You are Style Reviewer.</identity>');
-    await writeFile(join(promptsDir, 'sisyphus-lite.md'), '<identity>You are Sisyphus-lite.</identity>');
+    await writeRoleSkill(cwd, 'explore', '<identity>You are Explorer.</identity>');
+    await writeRoleSkill(cwd, 'style-reviewer', '<identity>You are Style Reviewer.</identity>');
+    await writeRoleSkill(cwd, 'sisyphus-lite', '<identity>You are Sisyphus-lite.</identity>');
     await writeFile(
       fakeCodexPath,
       `#!/usr/bin/env node
@@ -219,9 +223,8 @@ process.on('SIGTERM', () => process.exit(0));
       await chmod(tmuxStubPath, 0o755);
       process.env.PATH = `${fakeBinDir}:${previousPath ?? ''}`;
 
-      await mkdir(join(cwd, '.codex', 'prompts'), { recursive: true });
-      await writeFile(join(cwd, '.codex', 'prompts', 'explore.md'), '<identity>You are Explorer.</identity>');
-      await writeFile(join(cwd, '.codex', 'prompts', 'sisyphus-lite.md'), '<identity>You are Sisyphus-lite.</identity>');
+      await writeRoleSkill(cwd, 'explore', '<identity>You are Explorer.</identity>');
+      await writeRoleSkill(cwd, 'sisyphus-lite', '<identity>You are Sisyphus-lite.</identity>');
       await mkdir(join(cwd, '.omx', 'state', 'team', 'low-role-scale'), { recursive: true });
       await writeFile(join(cwd, '.omx', 'state', 'team', 'low-role-scale', 'worker-agents.md'), '# Base worker instructions\n');
 

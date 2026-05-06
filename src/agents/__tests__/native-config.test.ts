@@ -26,6 +26,15 @@ function manifestWithAgents(names: string[]): CatalogManifest {
   };
 }
 
+async function writeRoleSkill(root: string, name: string, content: string): Promise<void> {
+  const skillDir = join(root, "skills", `agent-${name}`);
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(
+    join(skillDir, "SKILL.md"),
+    `---\nname: agent-${name}\ndescription: test role skill\n---\n\n${content}`,
+  );
+}
+
 const originalCodexHome = process.env.CODEX_HOME;
 const originalFrontierModel = process.env.OMX_DEFAULT_FRONTIER_MODEL;
 const originalStandardModel = process.env.OMX_DEFAULT_STANDARD_MODEL;
@@ -136,14 +145,12 @@ describe("agents/native-config", () => {
 
   it("installs only catalog-installable agents and skips existing files without force", async () => {
     const root = await mkdtemp(join(tmpdir(), "omx-native-config-"));
-    const promptsDir = join(root, "prompts");
     const outDir = join(root, "agents-out");
 
     try {
-      await mkdir(promptsDir, { recursive: true });
-      await writeFile(join(promptsDir, "executor.md"), "executor prompt");
-      await writeFile(join(promptsDir, "planner.md"), "planner prompt");
-      await writeFile(join(promptsDir, "style-reviewer.md"), "merged prompt");
+      await writeRoleSkill(root, "executor", "executor prompt");
+      await writeRoleSkill(root, "planner", "planner prompt");
+      await writeRoleSkill(root, "style-reviewer", "merged prompt");
 
       const created = await installNativeAgentConfigs(root, {
         agentsDir: outDir,
@@ -174,14 +181,12 @@ describe("agents/native-config", () => {
   it("preserves active provider on native agents so websocket-capable Responses providers are inherited", async () => {
     const root = await mkdtemp(join(tmpdir(), "omx-native-config-provider-"));
     const codexHome = join(root, ".codex");
-    const promptsDir = join(root, "prompts");
     const outDir = join(codexHome, "agents");
     const previousCodexHome = process.env.CODEX_HOME;
 
     try {
       delete process.env.OMX_DEFAULT_STANDARD_MODEL;
       process.env.CODEX_HOME = codexHome;
-      await mkdir(promptsDir, { recursive: true });
       await mkdir(codexHome, { recursive: true });
       await writeFile(join(codexHome, "config.toml"), [
         'model = "gpt-5.5"',
@@ -194,7 +199,7 @@ describe("agents/native-config", () => {
         'supports_websockets = true',
         '',
       ].join('\n'));
-      await writeFile(join(promptsDir, "executor.md"), "executor prompt");
+      await writeRoleSkill(root, "executor", "executor prompt");
 
       await installNativeAgentConfigs(root, {
         agentsDir: outDir,
@@ -214,17 +219,15 @@ describe("agents/native-config", () => {
   it("inherits a custom root model for standard agents when no standard override exists", async () => {
     const root = await mkdtemp(join(tmpdir(), "omx-native-config-root-model-"));
     const codexHome = join(root, ".codex");
-    const promptsDir = join(root, "prompts");
     const outDir = join(codexHome, "agents");
     const previousCodexHome = process.env.CODEX_HOME;
 
     try {
       delete process.env.OMX_DEFAULT_STANDARD_MODEL;
       process.env.CODEX_HOME = codexHome;
-      await mkdir(promptsDir, { recursive: true });
       await mkdir(codexHome, { recursive: true });
       await writeFile(join(codexHome, "config.toml"), 'model = "gpt-5.2"\n');
-      await writeFile(join(promptsDir, "debugger.md"), "debugger prompt");
+      await writeRoleSkill(root, "debugger", "debugger prompt");
 
       await installNativeAgentConfigs(root, {
         agentsDir: outDir,
@@ -244,17 +247,15 @@ describe("agents/native-config", () => {
   it("preserves explicit standard model override for standard agents", async () => {
     const root = await mkdtemp(join(tmpdir(), "omx-native-config-standard-override-"));
     const codexHome = join(root, ".codex");
-    const promptsDir = join(root, "prompts");
     const outDir = join(codexHome, "agents");
     const previousCodexHome = process.env.CODEX_HOME;
 
     try {
       process.env.OMX_DEFAULT_STANDARD_MODEL = "gpt-5.4-mini";
       process.env.CODEX_HOME = codexHome;
-      await mkdir(promptsDir, { recursive: true });
       await mkdir(codexHome, { recursive: true });
       await writeFile(join(codexHome, "config.toml"), 'model = "gpt-5.2"\n');
-      await writeFile(join(promptsDir, "debugger.md"), "debugger prompt");
+      await writeRoleSkill(root, "debugger", "debugger prompt");
 
       await installNativeAgentConfigs(root, {
         agentsDir: outDir,
@@ -274,17 +275,15 @@ describe("agents/native-config", () => {
   it("keeps executor on the frontier lane so an explicit gpt-5.2 root model still applies there", async () => {
     const root = await mkdtemp(join(tmpdir(), "omx-native-config-executor-model-"));
     const codexHome = join(root, ".codex");
-    const promptsDir = join(root, "prompts");
     const outDir = join(codexHome, "agents");
     const previousCodexHome = process.env.CODEX_HOME;
 
     try {
       delete process.env.OMX_DEFAULT_STANDARD_MODEL;
       process.env.CODEX_HOME = codexHome;
-      await mkdir(promptsDir, { recursive: true });
       await mkdir(codexHome, { recursive: true });
       await writeFile(join(codexHome, "config.toml"), 'model = "gpt-5.2"\n');
-      await writeFile(join(promptsDir, "executor.md"), "executor prompt");
+      await writeRoleSkill(root, "executor", "executor prompt");
 
       await installNativeAgentConfigs(root, {
         agentsDir: outDir,

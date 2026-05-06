@@ -15,6 +15,7 @@ import {
 } from "../agents/policy.js";
 import { readCatalogManifest } from "../catalog/reader.js";
 import type { CatalogManifest } from "../catalog/schema.js";
+import { promptSurfaceSkillPath } from "../utils/prompt-surface.js";
 
 export interface VerifyNativeAgentsOptions {
   root?: string;
@@ -41,12 +42,12 @@ function errorBlock(code: string, fields: Record<string, unknown>): Error {
 }
 
 async function readPromptNames(root: string): Promise<Set<string>> {
-  const promptsDir = join(root, "prompts");
-  const entries = await readdir(promptsDir, { withFileTypes: true });
+  const skillsDir = join(root, "skills");
+  const entries = await readdir(skillsDir, { withFileTypes: true });
   return new Set(
     entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-      .map((entry) => entry.name.slice(0, -3)),
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith("agent-"))
+      .map((entry) => entry.name.slice("agent-".length)),
   );
 }
 
@@ -156,7 +157,7 @@ export async function verifyNativeAgents(
       throw errorBlock("native_agent_prompt_missing", {
         agent: agent.name,
         status: agent.status,
-        path: `prompts/${agent.name}.md`,
+        path: `skills/agent-${agent.name}/SKILL.md`,
       });
     }
   }
@@ -175,16 +176,16 @@ export async function verifyNativeAgents(
     if (NON_NATIVE_AGENT_PROMPT_ASSETS.has(name)) continue;
     throw errorBlock("native_agent_prompt_unclassified", {
       prompt: name,
-      path: `prompts/${name}.md`,
+      path: `skills/agent-${name}/SKILL.md`,
       message:
-        "prompt files must be cataloged native agents or explicit non-native prompt assets",
+        "role skill files must be cataloged native agents or explicit non-native prompt assets",
     });
   }
 
   for (const name of installableAgentNames) {
     const agent = definitions[name];
     if (!agent) continue;
-    const promptPath = join(root, "prompts", `${name}.md`);
+    const promptPath = promptSurfaceSkillPath(join(root, "skills"), name);
     const promptContent = options.promptNames
       ? `${name} prompt fixture`
       : await readFile(promptPath, "utf-8");

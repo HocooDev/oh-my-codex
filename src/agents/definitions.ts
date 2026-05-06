@@ -1,7 +1,7 @@
 /**
  * Agent role definitions for oh-my-codex
  * Each agent has a name, description, default reasoning effort, and tool access pattern.
- * Prompt content is loaded from the prompts/ directory at runtime.
+ * Role instructions are loaded from internal role skills at runtime.
  */
 
 export interface AgentDefinition {

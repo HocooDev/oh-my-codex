@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { codexPromptsDir, packageRoot } from '../utils/paths.js';
+import { packageRoot, projectSkillsDir, userSkillsDir } from '../utils/paths.js';
 import { resolveAgentReasoningEffort, type TeamReasoningEffort } from './model-contract.js';
 import { listAvailableRoles, routeTaskToRole } from './role-router.js';
 
@@ -88,10 +88,9 @@ export function isApprovedExecutionFollowupShortcut(
 
 function defaultPromptDirs(projectRoot: string): string[] {
   return [
-    join(projectRoot, 'prompts'),
-    join(projectRoot, '.codex', 'prompts'),
-    join(packageRoot(), 'prompts'),
-    codexPromptsDir(),
+    projectSkillsDir(projectRoot),
+    join(packageRoot(), 'skills'),
+    userSkillsDir(),
   ];
 }
 

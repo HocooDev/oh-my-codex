@@ -1,13 +1,19 @@
 /**
  * Role Router for team orchestration.
  *
- * Layer 1: Prompt loading utilities (loadRolePrompt, isKnownRole, listAvailableRoles)
+ * Layer 1: Role surface loading utilities (loadRolePrompt, isKnownRole, listAvailableRoles)
  * Layer 2: Heuristic role routing (routeTaskToRole, computeWorkerRoleAssignments)
  */
 
 import { readdir, readFile } from 'fs/promises';
-import { join } from 'path';
+import { basename, dirname, join } from 'path';
 import { existsSync } from 'fs';
+import {
+  hasPromptSurfaceSkill,
+  legacyPromptSurfacePath,
+  listPromptSurfacesFromSkills,
+  loadPromptSurfaceFromSkills,
+} from '../utils/prompt-surface.js';
 import type { TeamPhase } from './orchestrator.js';
 
 // ─── Layer 1: Prompt Loading ────────────────────────────────────────────────
@@ -15,16 +21,26 @@ import type { TeamPhase } from './orchestrator.js';
 /** Role names must be lowercase alphanumeric with hyphens (e.g., 'test-engineer'). */
 const SAFE_ROLE_PATTERN = /^[a-z][a-z0-9-]*$/;
 
+function legacyPromptDirForRoleSkillsDir(roleSkillsDir: string): string {
+  return basename(roleSkillsDir) === 'skills'
+    ? join(dirname(roleSkillsDir), 'prompts')
+    : roleSkillsDir;
+}
+
 /**
- * Load behavioral prompt content for a given agent role.
- * Returns null if the prompt file does not exist or the role name is invalid.
+ * Load behavioral instructions for a given agent role.
+ * Prefers migrated role skills and falls back to legacy prompt files during migration.
+ * Returns null if no surface exists or the role name is invalid.
  */
 export async function loadRolePrompt(
   role: string,
-  promptsDir: string,
+  roleSkillsDir: string,
 ): Promise<string | null> {
   if (!SAFE_ROLE_PATTERN.test(role)) return null;
-  const filePath = join(promptsDir, `${role}.md`);
+  const skillContent = await loadPromptSurfaceFromSkills(role, roleSkillsDir);
+  if (skillContent) return skillContent;
+
+  const filePath = legacyPromptSurfacePath(legacyPromptDirForRoleSkillsDir(roleSkillsDir), role);
   try {
     const content = await readFile(filePath, 'utf-8');
     return content.trim() || null;
@@ -34,20 +50,23 @@ export async function loadRolePrompt(
 }
 
 /**
- * Check whether a role has a corresponding prompt file.
+ * Check whether a role has a corresponding role-surface skill or legacy prompt file.
  */
-export function isKnownRole(role: string, promptsDir: string): boolean {
+export function isKnownRole(role: string, roleSkillsDir: string): boolean {
   if (!SAFE_ROLE_PATTERN.test(role)) return false;
-  return existsSync(join(promptsDir, `${role}.md`));
+  return hasPromptSurfaceSkill(role, roleSkillsDir) || existsSync(legacyPromptSurfacePath(legacyPromptDirForRoleSkillsDir(roleSkillsDir), role));
 }
 
 /**
- * List all available roles by scanning the prompts directory.
- * Returns role names (filename without .md extension).
+ * List available roles by scanning migrated role skills first, then legacy prompt files.
+ * Returns role names without the internal `agent-` skill prefix.
  */
-export async function listAvailableRoles(promptsDir: string): Promise<string[]> {
+export async function listAvailableRoles(roleSkillsDir: string): Promise<string[]> {
+  const skillRoles = await listPromptSurfacesFromSkills(roleSkillsDir);
+  if (skillRoles.length > 0) return skillRoles;
+
   try {
-    const files = await readdir(promptsDir);
+    const files = await readdir(legacyPromptDirForRoleSkillsDir(roleSkillsDir));
     return files
       .filter(f => f.endsWith('.md'))
       .map(f => f.slice(0, -3))

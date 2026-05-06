@@ -19,6 +19,7 @@ import {
 } from "../config/models.js";
 import { getRootModelName } from "../config/generator.js";
 import { codexAgentsDir } from "../utils/paths.js";
+import { promptSurfaceSkillPath } from "../utils/prompt-surface.js";
 
 export const EXACT_GPT_5_4_MINI_MODEL = "gpt-5.4-mini";
 
@@ -357,9 +358,9 @@ export async function installNativeAgentConfigs(
       if (verbose) console.log(`  skip ${name} (no agent definition)`);
       continue;
     }
-    const promptPath = join(pkgRoot, "prompts", `${name}.md`);
+    const promptPath = promptSurfaceSkillPath(join(pkgRoot, "skills"), name);
     if (!existsSync(promptPath)) {
-      if (verbose) console.log(`  skip ${name} (no prompt file)`);
+      if (verbose) console.log(`  skip ${name} (no role skill file)`);
       continue;
     }
 

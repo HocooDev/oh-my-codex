@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseSkillFrontmatter } from '../setup.js';
 
 const repoRoot = process.cwd();
 
@@ -23,7 +24,6 @@ describe('prompt/skill sanitization', () => {
   it('removes stale model aliases and spawn_sub_agent syntax from active prompts and skills', () => {
     const targets = [
       ...walkFiles(join(repoRoot, 'skills')).filter((file) => file.endsWith('SKILL.md')),
-      ...walkFiles(join(repoRoot, 'prompts')).filter((file) => file.endsWith('.md')),
     ];
 
     const bannedPatterns: Array<{ pattern: RegExp; label: string }> = [
@@ -44,6 +44,24 @@ describe('prompt/skill sanitization', () => {
         if (pattern.test(text)) {
           violations.push(`${file}: ${label}`);
         }
+      }
+    }
+
+    assert.deepEqual(violations, []);
+  });
+
+  it('keeps every shipped SKILL.md frontmatter parseable and duplicate-free', () => {
+    const targets = [
+      ...walkFiles(join(repoRoot, 'skills')).filter((file) => file.endsWith('SKILL.md')),
+    ];
+
+    const violations: string[] = [];
+    for (const file of targets) {
+      try {
+        parseSkillFrontmatter(readFileSync(file, 'utf8'), file);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        violations.push(`${file}: ${message}`);
       }
     }
 
