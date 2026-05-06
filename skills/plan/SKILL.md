@@ -4,7 +4,7 @@ description: Strategic planning with optional interview workflow
 ---
 
 <Purpose>
-Plan creates comprehensive, actionable work plans through intelligent interaction. It auto-detects whether to interview the user (broad requests) or plan directly (detailed requests), and supports consensus mode (iterative Planner/Architect/Critic loop with RALPLAN-DR structured deliberation) and review mode (Critic evaluation of existing plans).
+Plan creates comprehensive, actionable work plans through intelligent interaction. It auto-detects whether to interview the user (broad requests) or plan directly (detailed requests), and supports consensus mode (iterative Planner loop with parallel Architect/Critic review under RALPLAN-DR structured deliberation) and review mode (Critic evaluation of existing plans).
 </Purpose>
 
 <Use_When>
@@ -46,7 +46,7 @@ Jumping into code without understanding requirements leads to rework, scope cree
 |------|---------|----------|
 | Interview | Default for broad requests | Interactive requirements gathering |
 | Direct | `--direct`, or detailed request | Skip interview, generate plan directly |
-| Consensus | `--consensus`, "ralplan" | Planner -> Architect -> Critic loop until agreement with RALPLAN-DR structured deliberation (short by default, `--deliberate` for high-risk); outputs plan by default |
+| Consensus | `--consensus`, "ralplan" | Planner -> (Architect + Critic on the same draft) -> Planner revision loop until agreement with RALPLAN-DR structured deliberation (short by default, `--deliberate` for high-risk); outputs plan by default |
 | Consensus Interactive | `--consensus --interactive` | Same as Consensus but pauses for user feedback at draft and approval steps, then hands off to execution |
 | Review | `--review`, "review this plan" | Critic evaluation of existing plan |
 
@@ -67,7 +67,7 @@ Jumping into code without understanding requirements leads to rework, scope cree
 
 ### Consensus Mode (`--consensus` / "ralplan")
 
-**RALPLAN-DR modes**: **Short** (default, bounded structure) and **Deliberate** (for `--deliberate` or explicit high-risk requests). Both modes keep the same Planner -> Architect -> Critic sequence. The workflow auto-proceeds through planning steps (Planner/Architect/Critic) but outputs the final plan without executing.
+**RALPLAN-DR modes**: **Short** (default, bounded structure) and **Deliberate** (for `--deliberate` or explicit high-risk requests). Both modes keep the same Planner -> parallel Architect/Critic review -> Planner revision sequence. The workflow auto-proceeds through planning steps but outputs the final plan without executing.
 
 1. **Planner** creates initial plan and a compact **RALPLAN-DR summary** before any Architect review. The summary **MUST** include:
    - **Principles** (3-5)
@@ -80,11 +80,11 @@ Jumping into code without understanding requirements leads to rework, scope cree
    - **Request changes** — return to step 1 with user feedback incorporated
    - **Skip review** — go directly to final approval (step 7)
    If NOT running with `--interactive`, automatically proceed to review (step 3).
-3. **Architect** reviews for architectural soundness using `ask_codex` with `agent_role: "architect"`. Architect review **MUST** include: strongest steelman counterargument (antithesis) against the favored option, at least one meaningful tradeoff tension, and (when possible) a synthesis path. In deliberate mode, Architect should explicitly flag principle violations. **Wait for this step to complete before proceeding to step 4.** Do NOT run steps 3 and 4 in parallel.
-4. **Critic** evaluates against quality criteria using `ask_codex` with `agent_role: "critic"`. Critic **MUST** verify principle-option consistency, fair alternative exploration, risk mitigation clarity, testable acceptance criteria, and concrete verification steps. Critic **MUST** explicitly reject shallow alternatives, driver contradictions, vague risks, or weak verification. In deliberate mode, Critic **MUST** reject missing/weak pre-mortem or missing/weak expanded test plan. Run only after step 3 is complete.
+3. **Architect** reviews the Planner draft for architectural soundness using `ask_codex` with `agent_role: "architect"`. Architect review **MUST** include: strongest steelman counterargument (antithesis) against the favored option, at least one meaningful tradeoff tension, and (when possible) a synthesis path. In deliberate mode, Architect should explicitly flag principle violations. Architect reviews the same Planner draft that Critic receives; do not wait for Critic output before issuing this review.
+4. **Critic** evaluates that same Planner draft against quality criteria using `ask_codex` with `agent_role: "critic"`. Critic **MUST** verify principle-option consistency, fair alternative exploration, risk mitigation clarity, testable acceptance criteria, and concrete verification steps. Critic **MUST** explicitly reject shallow alternatives, driver contradictions, vague risks, or weak verification. In deliberate mode, Critic **MUST** reject missing/weak pre-mortem or missing/weak expanded test plan. Launch steps 3 and 4 in parallel, then wait for both review results before the next Planner revision.
 5. **Re-review loop** (max 5 iterations): If Critic rejects or iterates, execute this closed loop:
    a. Collect all feedback from Architect + Critic
-   b. Pass feedback to Planner to produce a revised plan
+   b. Pass feedback to Planner to produce a revised plan, explicitly reconciling conflicts or choosing between competing recommendations
    c. **Return to Step 3** — Architect reviews the revised plan
    d. **Return to Step 4** — Critic evaluates the revised plan
    e. Repeat until Critic approves OR max 5 iterations reached
@@ -143,7 +143,7 @@ Plans are saved to `.omx/plans/`. Drafts go to `.omx/drafts/`.
 - Use `ask_codex` with `agent_role: "analyst"` for requirements analysis
 - Use `ask_codex` with `agent_role: "critic"` for plan review in consensus and review modes
 - If ToolSearch finds no MCP tools or Codex is unavailable, fall back to equivalent OMX prompt agents -- never block on external tools
-- **CRITICAL — Consensus mode agent calls MUST be sequential, never parallel.** Always await the Architect result before issuing the Critic call.
+- **CRITICAL — Consensus mode review calls MUST batch Architect and Critic together against the same Planner draft.** Do not make Critic wait on Architect, and do not start the next Planner revision until both reviews return.
 - In consensus mode, default to RALPLAN-DR short mode; enable deliberate mode on `--deliberate` or explicit high-risk signals (auth/security, migrations, destructive changes, production incidents, compliance/PII, public API breakage)
 - In consensus mode with `--interactive`: use `AskUserQuestion` / the structured question UI for the user feedback step (step 2) and the final approval step (step 7) -- never ask for approval in plain text when a structured surface is available. Without `--interactive`, auto-proceed through planning steps without pausing. Output the final plan without execution.
 - In consensus mode with `--interactive`, on user approval **MUST** invoke `$ralph` for execution (step 9) -- never implement directly in the planning agent

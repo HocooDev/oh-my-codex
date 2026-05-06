@@ -268,6 +268,10 @@ describe('ralph deslop launch wiring', () => {
     assert.match(instructions, /\.omx\/ralph\/changed-files\.txt/);
     assert.match(instructions, /standard mode/i);
     assert.match(instructions, /rerun the current tests\/build\/lint verification/i);
+    assert.match(instructions, /implementation, evidence\/regression, and final sign-off lanes/i);
+    assert.match(instructions, /launch the full subagent batch first/i);
+    assert.match(instructions, /Do not serialize independent subagent launches/i);
+    assert.match(instructions, /omx team/i);
   });
 
   it('documents the --no-deslop opt-out when enabled', () => {

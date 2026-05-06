@@ -30,7 +30,7 @@ Complex tasks often fail silently: partial implementations get declared "done", 
 </Why_This_Exists>
 
 <Execution_Policy>
-- Fire independent agent calls simultaneously -- never wait sequentially for independent work
+- Fire independent agent calls simultaneously -- never wait sequentially for independent work, and prefer one batch fanout before any wait when 2+ lanes are independent
 - Use `run_in_background: true` for long operations (installs, builds, test suites)
 - Always pass the `model` parameter explicitly when delegating to agents
 - Read `docs/shared/agent-tiers.md` before first delegation to select correct agent tiers
@@ -59,6 +59,9 @@ Complex tasks often fail silently: partial implementations get declared "done", 
    - Standard work: STANDARD tier -- "Add error handling to this module"
    - Complex analysis: THOROUGH tier -- "Debug this race condition"
    - When Ralph is entered as a ralplan follow-up, start from the approved **available-agent-types roster** and make the delegation plan explicit: implementation lane, evidence/regression lane, and final sign-off lane using only known agent types
+   - Identify independent lanes before delegating. At minimum, separate implementation, evidence/regression, and final sign-off when those lanes can proceed independently.
+   - If 2 or more independent lanes exist, spawn the whole batch first, then wait/join and summarize results. Do not launch one subagent, wait for it, and only then launch another independent lane.
+   - Keep Ralph distinct from `team`: use native subagent batch fanout for bounded in-session parallelism, but switch to `$team` / `omx team` when the task needs durable tmux workers, worktrees, or long-running coordination.
 4. **Run long operations in background**: Builds, installs, test suites use `run_in_background: true`
 5. **Visual task gate (when screenshot/reference images are present)**:
    - Run the Visual Ralph verdict step **before every next edit**.

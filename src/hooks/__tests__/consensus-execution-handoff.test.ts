@@ -30,13 +30,13 @@ const ralplanSkill = readFileSync(
   join(__dirname, '../../../skills/ralplan/SKILL.md'), 'utf-8'
 );
 const plannerPrompt = readFileSync(
-  join(__dirname, '../../../prompts/planner.md'), 'utf-8'
+  join(__dirname, '../../../skills/agent-planner/SKILL.md'), 'utf-8'
 );
 const architectPrompt = readFileSync(
-  join(__dirname, '../../../prompts/architect.md'), 'utf-8'
+  join(__dirname, '../../../skills/agent-architect/SKILL.md'), 'utf-8'
 );
 const criticPrompt = readFileSync(
-  join(__dirname, '../../../prompts/critic.md'), 'utf-8'
+  join(__dirname, '../../../skills/agent-critic/SKILL.md'), 'utf-8'
 );
 
 /**
@@ -191,7 +191,7 @@ describe('User feedback step between Planner and Architect/Critic (plan/SKILL.md
     assert.ok(consensusSection.includes('Skip review'));
   });
 
-  it('should place Critic after Architect in the consensus flow', () => {
+  it('should place Critic after Architect in the consensus flow description', () => {
     const consensusSection = extractSection(planSkill, 'Consensus Mode');
     assert.ok(consensusSection, 'Consensus Mode section should exist');
 
@@ -201,6 +201,14 @@ describe('User feedback step between Planner and Architect/Critic (plan/SKILL.md
     assert.ok(architectIdx > -1, 'Should have Architect step');
     assert.ok(criticIdx > -1, 'Should have Critic step');
     assert.ok(criticIdx > architectIdx, 'Critic should come after Architect');
+  });
+
+  it('should require parallel Architect and Critic review on the same Planner draft', () => {
+    const consensusSection = extractSection(planSkill, 'Consensus Mode');
+    assert.ok(consensusSection, 'Consensus Mode section should exist');
+    assert.match(consensusSection, /same Planner draft/i);
+    assert.match(consensusSection, /Launch steps 3 and 4 in parallel|parallel/i);
+    assert.match(consensusSection, /wait for both/i);
   });
 
   it('should require architect antithesis and critic rejection gates in consensus flow', () => {
@@ -266,11 +274,12 @@ describe('RALPLAN-DR in ralplan/SKILL.md', () => {
     );
   });
 
-  it('should document sequential Architect then Critic execution', () => {
+  it('should document parallel Architect and Critic review on the same draft', () => {
     assert.ok(
-      /step[s]? 3 and 4 MUST run sequentially|Do NOT.*parallel/i.test(ralplanSkill) ||
-      ralplanSkill.includes('await completion before step 4'),
-      'ralplan/SKILL.md should require sequential Architect/Critic execution'
+      /same Planner draft/i.test(ralplanSkill) &&
+      /parallel/i.test(ralplanSkill) &&
+      /wait for both/i.test(ralplanSkill),
+      'ralplan/SKILL.md should require parallel Architect/Critic review'
     );
   });
 
@@ -327,6 +336,11 @@ describe('Planner prompt follow-up staffing guidance', () => {
     assert.match(plannerPrompt, /reasoning levels? by lane|suggested reasoning/i);
     assert.match(plannerPrompt, /launch hints?/i);
     assert.match(plannerPrompt, /team verification path/i);
+  });
+
+  it('should require parallel review batching and conflict reconciliation in consensus mode', () => {
+    assert.match(plannerPrompt, /Architect and Critic.*parallel/i);
+    assert.match(plannerPrompt, /reconcil/i);
   });
 });
 

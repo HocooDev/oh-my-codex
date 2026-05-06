@@ -5,7 +5,7 @@ description: Alias for $plan --consensus
 
 # Ralplan (Consensus Planning Alias)
 
-Ralplan is a shorthand alias for `$plan --consensus`. It triggers iterative planning with Planner, Architect, and Critic agents until consensus is reached, with **RALPLAN-DR structured deliberation** (short mode by default, deliberate mode for high-risk work).
+Ralplan is a shorthand alias for `$plan --consensus`. It triggers iterative planning with Planner plus parallel Architect/Critic reviews until consensus is reached, with **RALPLAN-DR structured deliberation** (short mode by default, deliberate mode for high-risk work).
 
 ## Usage
 
@@ -15,7 +15,7 @@ $ralplan "task description"
 
 ## Flags
 
-- `--interactive`: Enables user prompts at key decision points (draft review in step 2 and final approval in step 6). Without this flag the workflow runs fully automated — Planner → Architect → Critic loop — and outputs the final plan without asking for confirmation.
+- `--interactive`: Enables user prompts at key decision points (draft review in step 2 and final approval in step 6). Without this flag the workflow runs fully automated — Planner → Architect/Critic parallel review loop — and outputs the final plan without asking for confirmation.
 - `--deliberate`: Forces deliberate mode for high-risk work. Adds pre-mortem (3 scenarios) and expanded test planning (unit/integration/e2e/observability). Without this flag, deliberate mode can still auto-enable when the request explicitly signals high risk (auth/security, migrations, destructive changes, production incidents, compliance/PII, public API breakage).
 
 ## Usage with interactive mode
@@ -45,11 +45,11 @@ The consensus workflow:
    - If only one viable option remains, explicit invalidation rationale for alternatives
    - Deliberate mode only: pre-mortem (3 scenarios) + expanded test plan (unit/integration/e2e/observability)
 2. **User feedback** *(--interactive only)*: If `--interactive` is set, use the structured question UI (`omx question` in attached tmux; native structured input outside tmux when available) to present the draft plan **plus the Principles / Drivers / Options summary** before review (Proceed to review / Request changes / Skip review). Otherwise, automatically proceed to review.
-3. **Architect** reviews for architectural soundness and must provide the strongest steelman antithesis, at least one real tradeoff tension, and (when possible) synthesis — **await completion before step 4**. In deliberate mode, Architect should explicitly flag principle violations.
-4. **Critic** evaluates against quality criteria — run only after step 3 completes. Critic must enforce principle-option consistency, fair alternatives, risk mitigation clarity, testable acceptance criteria, and concrete verification steps. In deliberate mode, Critic must reject missing/weak pre-mortem or expanded test plan.
+3. **Architect** reviews the Planner draft for architectural soundness and must provide the strongest steelman antithesis, at least one real tradeoff tension, and (when possible) synthesis. In deliberate mode, Architect should explicitly flag principle violations. Architect reviews the same Planner draft that Critic receives.
+4. **Critic** evaluates that same Planner draft against quality criteria. Critic must enforce principle-option consistency, fair alternatives, risk mitigation clarity, testable acceptance criteria, and concrete verification steps. In deliberate mode, Critic must reject missing/weak pre-mortem or expanded test plan. Steps 3 and 4 run in parallel, and Planner waits for both before revising.
 5. **Re-review loop** (max 5 iterations): Any non-`APPROVE` Critic verdict (`ITERATE` or `REJECT`) MUST run the same full closed loop:
    a. Collect Architect + Critic feedback
-   b. Revise the plan with Planner
+   b. Revise the plan with Planner, explicitly reconciling conflicts between Architect and Critic feedback
    c. Return to Architect review
    d. Return to Critic evaluation
    e. Repeat this loop until Critic returns `APPROVE` or 5 iterations are reached
@@ -58,7 +58,7 @@ The consensus workflow:
 7. *(--interactive only)* User chooses: Approve (ralph or team), Request changes, or Reject
 8. *(--interactive only)* On approval: invoke `$ralph` for sequential execution or `$team` for parallel team execution with the explicit available-agent-types roster, reasoning-by-lane guidance, role/staffing allocation guidance, launch hints, and verification-path guidance from the approved plan -- never implement directly
 
-> **Important:** Steps 3 and 4 MUST run sequentially. Do NOT issue both agent calls in the same parallel batch. Always await the Architect result before invoking Critic.
+> **Important:** Steps 3 and 4 MUST review the same Planner draft in parallel. Launch both review calls in the same batch, then wait for both results before the next Planner revision.
 
 Follow the Plan skill's full documentation for consensus mode details.
 
@@ -137,8 +137,8 @@ The gate auto-passes when it detects **any** concrete signal. You do not need al
 3. Gate redirects to **ralplan** with message explaining the redirect
 4. Ralplan consensus runs:
    - **Planner** creates initial plan (which files, what auth method, what tests)
-   - **Architect** reviews for soundness
-   - **Critic** validates quality and testability
+   - **Architect** and **Critic** review that same draft in parallel
+   - **Planner** reconciles both reviews into the next version
 5. On consensus approval, user chooses execution path:
    - **ralph**: sequential execution with verification
    - **team**: parallel coordinated agents
