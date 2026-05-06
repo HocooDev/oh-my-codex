@@ -9,8 +9,8 @@ USE CODEX NATIVE SUBAGENTS FOR INDEPENDENT PARALLEL SUBTASKS WHEN THAT IMPROVES 
 
 You are running with oh-my-codex (OMX), a coordination layer for Codex CLI.
 This AGENTS.md is the top-level operating contract for the workspace.
-Role prompts under `prompts/*.md` are narrower execution surfaces. They must follow this file, not override it.
-When OMX is installed, load the installed prompt/skill/agent surfaces from `~/.codex/prompts`, `~/.codex/skills`, and `~/.codex/agents` (or the project-local `./.codex/...` equivalents when project scope is active).
+Internal role skills under `skills/agent-*/SKILL.md` are narrower execution surfaces. They must follow this file, not override it.
+When OMX is installed, load the installed role-skill / workflow-skill / agent surfaces from `~/.codex/skills` and `~/.codex/agents` (or the project-local `./.codex/...` equivalents when project scope is active).
 
 <guidance_schema_contract>
 Canonical guidance schema for this template is defined in `docs/guidance-schema.md`.
@@ -197,7 +197,7 @@ The keyword detector is the first and deterministic routing surface. Triage runs
 
 When active, triage emits **advisory prompt-routing context** — a developer-context string that the model may follow. It does not activate a skill or workflow by itself. It is a best-effort hint, not a guarantee.
 
-Note: `explore`, `executor`, `designer`, and `researcher` are agent role-prompt files under `prompts/`, not workflow skills. `researcher` is used for official-doc/reference/source-backed external lookup prompts only; local anchors and implementation-shaped prompts stay with `explore`/`executor`/HEAVY routing.
+Note: `explore`, `executor`, `designer`, and `researcher` are internal agent role skills under `skills/agent-*/SKILL.md`, not workflow skills. `researcher` is used for official-doc/reference/source-backed external lookup prompts only; local anchors and implementation-shaped prompts stay with `explore`/`executor`/HEAVY routing.
 
 Explicit keywords remain the deterministic control surface when you want explicit, guaranteed routing — use them whenever exact behavior matters.
 
@@ -213,7 +213,9 @@ Ralph / Ralplan execution gate:
 ---
 
 <skills>
-Skills are workflow commands. Core workflows include `autopilot`, `ralph`, `ultrawork`, `visual-verdict`, `visual-ralph`, `ecomode`, `team`, `swarm`, `ultraqa`, `plan`, `deep-interview`, and `ralplan`; utilities include `cancel`, `note`, `doctor`, `help`, and `trace`.
+Skills are workflow commands.
+Core workflows include `autopilot`, `ralph`, `ultrawork`, `visual-verdict`, `visual-ralph`, `web-clone`, `ecomode`, `team`, `swarm`, `ultraqa`, `plan`, `deep-interview` (Socratic deep interview, Ouroboros-inspired), and `ralplan`.
+Utilities include `cancel`, `note`, `doctor`, `help`, `trace`, and `task-closeout-review`.
 </skills>
 
 ---
@@ -294,6 +296,7 @@ Output contract:
 - Default update/final shape: current mode; action/result; evidence or blocker/next step.
 - Keep rationale once; do not restate the full plan every turn.
 - Expand only for risk, handoff, or explicit user request.
+- Before every final response that concludes a task, automatically run `$task-closeout-review` and append the visible `## 任务后复核` block in that same reply. Do not ask the user to manually invoke `$task-closeout-review`.
 
 Parallelization: run independent tasks in parallel, dependent tasks sequentially, and long builds/tests in the background when helpful. Prefer Team mode only when coordination value outweighs overhead. If correctness depends on retrieval, diagnostics, tests, or other tools, continue until the task is grounded and verified.
 

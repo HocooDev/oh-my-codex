@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { listTrackedAgentSurfaces, loadSurface } from './prompt-guidance-test-helpers.js';
 
-const PROMPTS_DIR = join(process.cwd(), 'prompts');
-const promptFiles = readdirSync(PROMPTS_DIR).filter((name) => name.endsWith('.md'));
+const PROMPTS_DIR = join(process.cwd(), 'skills');
+const promptFiles = readdirSync(PROMPTS_DIR)
+  .filter((name) => name.startsWith('agent-'))
+  .map((name) => ({ name, file: join(PROMPTS_DIR, name, 'SKILL.md') }))
+  .filter(({ file }) => existsSync(file));
 
 const FORBIDDEN_PROMPT_PATTERNS: Array<[label: string, pattern: RegExp]> = [
   ['direct handoff heading', /Hand off to:|##\s+Hand Off To\b/i],
@@ -20,11 +23,11 @@ const FORBIDDEN_PROMPT_PATTERNS: Array<[label: string, pattern: RegExp]> = [
 ];
 
 describe('prompt orchestration boundary', () => {
-  for (const file of promptFiles) {
-    it(`${file} avoids recursive orchestration language`, () => {
-      const content = readFileSync(join(PROMPTS_DIR, file), 'utf-8');
+  for (const entry of promptFiles) {
+    it(`${entry.name} avoids recursive orchestration language`, () => {
+      const content = readFileSync(entry.file, 'utf-8');
       for (const [label, pattern] of FORBIDDEN_PROMPT_PATTERNS) {
-        assert.doesNotMatch(content, pattern, `${file} should not include ${label}`);
+        assert.doesNotMatch(content, pattern, `\${entry.name} should not include ${label}`);
       }
     });
   }

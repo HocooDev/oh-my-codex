@@ -8,8 +8,15 @@ import type { GuidanceSurfaceContract } from '../prompt-guidance-contract.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '../../../');
 
+function legacyPromptPathToSkillPath(path: string): string {
+  const match = path.match(/^prompts\/([^/]+)\.md$/);
+  if (!match) return path;
+  return `skills/agent-${match[1]}/SKILL.md`;
+}
+
 export function loadSurface(path: string): string {
-  return readFileSync(join(repoRoot, path), 'utf-8');
+  const resolved = legacyPromptPathToSkillPath(path);
+  return readFileSync(join(repoRoot, resolved), 'utf-8');
 }
 
 function isGitTracked(path: string): boolean {

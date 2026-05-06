@@ -32,21 +32,21 @@ async function main(): Promise<void> {
     await writeFile(file, text);
   }
 
-  let text = await read('prompts/executor.md');
+  let text = await read('skills/agent-executor/SKILL.md');
   text = replaceBetween(text, '<!-- OMX:GUIDANCE:EXECUTOR:CONSTRAINTS:START -->', '<!-- OMX:GUIDANCE:EXECUTOR:CONSTRAINTS:END -->', exC);
   text = replaceBetween(text, '<!-- OMX:GUIDANCE:EXECUTOR:OUTPUT:START -->', '<!-- OMX:GUIDANCE:EXECUTOR:OUTPUT:END -->', exO);
-  await writeFile('prompts/executor.md', text);
+  await writeFile('skills/agent-executor/SKILL.md', text);
 
-  text = await read('prompts/planner.md');
+  text = await read('skills/agent-planner/SKILL.md');
   text = replaceBetween(text, '<!-- OMX:GUIDANCE:PLANNER:CONSTRAINTS:START -->', '<!-- OMX:GUIDANCE:PLANNER:CONSTRAINTS:END -->', plC);
   text = replaceBetween(text, '<!-- OMX:GUIDANCE:PLANNER:INVESTIGATION:START -->', '<!-- OMX:GUIDANCE:PLANNER:INVESTIGATION:END -->', plI);
   text = replaceBetween(text, '<!-- OMX:GUIDANCE:PLANNER:OUTPUT:START -->', '<!-- OMX:GUIDANCE:PLANNER:OUTPUT:END -->', plO);
-  await writeFile('prompts/planner.md', text);
+  await writeFile('skills/agent-planner/SKILL.md', text);
 
-  text = await read('prompts/verifier.md');
+  text = await read('skills/agent-verifier/SKILL.md');
   text = replaceBetween(text, '<!-- OMX:GUIDANCE:VERIFIER:CONSTRAINTS:START -->', '<!-- OMX:GUIDANCE:VERIFIER:CONSTRAINTS:END -->', vfC);
   text = replaceBetween(text, '<!-- OMX:GUIDANCE:VERIFIER:INVESTIGATION:START -->', '<!-- OMX:GUIDANCE:VERIFIER:INVESTIGATION:END -->', vfI);
-  await writeFile('prompts/verifier.md', text);
+  await writeFile('skills/agent-verifier/SKILL.md', text);
 }
 
 main().catch((err) => {

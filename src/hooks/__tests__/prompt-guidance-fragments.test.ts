@@ -9,7 +9,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '../../../');
 
 function read(path: string): string {
-  return readFileSync(join(repoRoot, path), 'utf-8');
+  const resolved = path.replace(/^prompts\/([^/]+)\.md$/, 'skills/agent-$1/SKILL.md');
+  return readFileSync(join(repoRoot, resolved), 'utf-8');
 }
 
 function extract(text: string, startMarker: string, endMarker: string): string {

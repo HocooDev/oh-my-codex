@@ -152,6 +152,7 @@ When editing `templates/AGENTS.md`, any tracked root `AGENTS.md`, or other root 
 2. **Leader and worker responsibilities stay separate.** Leaders choose the mode, own verification, and integrate work; workers execute assigned slices and report blockers upward.
 3. **Stop/escalate rules are explicit.** The prompt should say when to stop, when to escalate to the user, and when workers must escalate back to the leader.
 4. **Output contract stays tight.** Default progress/final updates should be compact: current mode, action/result, and evidence or blocker/next step. Avoid repeating full-plan rationale unless the risk or decision changed.
+5. **Task closeout is part of completion.** For non-trivial tasks, root AGENTS surfaces should require an automatic closeout review before the final reply and a visible `## 任务后复核` block in that same reply, rather than asking the user to invoke a separate closing skill manually.
 
 ## Relationship to the guidance schema
 

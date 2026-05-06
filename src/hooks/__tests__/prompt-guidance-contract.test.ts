@@ -43,4 +43,14 @@ describe('prompt guidance contract', () => {
       assert.match(content, /AUTO-CONTINUE branches.*permission-handoff phrasing/i);
     }
   });
+
+  it('tracked AGENTS surfaces require automatic task closeout review in the final reply', () => {
+    for (const surface of listTrackedAgentSurfaces()) {
+      const content = loadSurface(surface);
+      assert.match(content, /Before every final response that concludes a task/i);
+      assert.match(content, /automatically run `?\$task-closeout-review`?/i);
+      assert.match(content, /visible `?## 任务后复核`? block/i);
+      assert.match(content, /Do not ask the user to manually invoke `?\$task-closeout-review`?/i);
+    }
+  });
 });

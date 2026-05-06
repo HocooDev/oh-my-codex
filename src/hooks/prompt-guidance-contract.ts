@@ -38,6 +38,9 @@ const ROOT_TEMPLATE_PATTERNS = [
   rx('boundary crossings upward'),
   rx('Stop / escalate'),
   rx('Default update/final shape'),
+  rx('Before every final response that concludes a task'),
+  rx('automatically run `?\\$task-closeout-review`?'),
+  rx('visible `?## 任务后复核`? block'),
   rx('do not skip prerequisites|task is grounded and verified'),
   rx('coding work.*targeted tests|targeted tests for changed behavior'),
   rx('validation.*cannot run|validation gap'),
@@ -117,15 +120,15 @@ export const ROOT_TEMPLATE_CONTRACTS: GuidanceSurfaceContract[] = [
 ];
 
 export const CORE_ROLE_CONTRACTS: GuidanceSurfaceContract[] = [
-  { id: 'executor', path: 'prompts/executor.md', requiredPatterns: CORE_ROLE_PATTERNS.executor },
-  { id: 'planner', path: 'prompts/planner.md', requiredPatterns: CORE_ROLE_PATTERNS.planner },
-  { id: 'verifier', path: 'prompts/verifier.md', requiredPatterns: CORE_ROLE_PATTERNS.verifier },
+  { id: 'executor', path: 'skills/agent-executor/SKILL.md', requiredPatterns: CORE_ROLE_PATTERNS.executor },
+  { id: 'planner', path: 'skills/agent-planner/SKILL.md', requiredPatterns: CORE_ROLE_PATTERNS.planner },
+  { id: 'verifier', path: 'skills/agent-verifier/SKILL.md', requiredPatterns: CORE_ROLE_PATTERNS.verifier },
 ];
 
 export const SCENARIO_ROLE_CONTRACTS: GuidanceSurfaceContract[] = [
   {
     id: 'executor-scenarios',
-    path: 'prompts/executor.md',
+    path: 'skills/agent-executor/SKILL.md',
     requiredPatterns: [
       rx('user says `continue`'),
       rx('make a PR targeting dev'),
@@ -135,7 +138,7 @@ export const SCENARIO_ROLE_CONTRACTS: GuidanceSurfaceContract[] = [
   },
   {
     id: 'planner-scenarios',
-    path: 'prompts/planner.md',
+    path: 'skills/agent-planner/SKILL.md',
     requiredPatterns: [
       rx('user says `continue`'),
       rx('user says `make a PR`'),
@@ -145,7 +148,7 @@ export const SCENARIO_ROLE_CONTRACTS: GuidanceSurfaceContract[] = [
   },
   {
     id: 'verifier-scenarios',
-    path: 'prompts/verifier.md',
+    path: 'skills/agent-verifier/SKILL.md',
     requiredPatterns: [
       rx('user says `merge if CI green`'),
       rx('confirm they are green'),
@@ -166,7 +169,7 @@ export const WAVE_TWO_CONTRACTS: GuidanceSurfaceContract[] = [
   'explore',
 ].map((name) => ({
   id: name,
-  path: `prompts/${name}.md`,
+  path: `skills/agent-${name}/SKILL.md`,
   requiredPatterns: WAVE_TWO_PATTERNS,
 }));
 
@@ -188,14 +191,14 @@ export const CATALOG_CONTRACTS: GuidanceSurfaceContract[] = [
   'writer',
 ].map((name) => ({
   id: name,
-  path: `prompts/${name}.md`,
+  path: `skills/agent-${name}/SKILL.md`,
   requiredPatterns: CATALOG_PATTERNS,
 }));
 
 export const LEGACY_PROMPT_CONTRACTS: GuidanceSurfaceContract[] = [
   {
     id: 'code-simplifier',
-    path: 'prompts/code-simplifier.md',
+    path: 'skills/agent-code-simplifier/SKILL.md',
     requiredPatterns: [
       rx('local overrides for the active simplification scope'),
       rx('simplification result is grounded'),
@@ -207,7 +210,7 @@ export const LEGACY_PROMPT_CONTRACTS: GuidanceSurfaceContract[] = [
 export const SPECIALIZED_PROMPT_CONTRACTS: GuidanceSurfaceContract[] = [
   {
     id: 'sisyphus-lite',
-    path: 'prompts/sisyphus-lite.md',
+    path: 'skills/agent-sisyphus-lite/SKILL.md',
     requiredPatterns: [
       rx('outcome-first.*quality-focused outputs'),
       rx('target result.*success criteria.*evidence.*output shape.*stop condition'),

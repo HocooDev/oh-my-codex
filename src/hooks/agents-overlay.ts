@@ -25,6 +25,7 @@ import {
   omxStateDir,
   packageRoot,
 } from "../utils/paths.js";
+import { promptSurfaceSkillPath } from "../utils/prompt-surface.js";
 import {
   isPlanningComplete,
   readPlanningArtifacts,
@@ -323,7 +324,7 @@ function getCompactionInstructions(): string {
 }
 
 async function readTeamOrchestratorOverlay(): Promise<string> {
-  const overlayPath = join(packageRoot(), "prompts", "team-orchestrator.md");
+  const overlayPath = promptSurfaceSkillPath(join(packageRoot(), "skills"), "team-orchestrator");
   try {
     return (await readFile(overlayPath, "utf-8")).trim();
   } catch {
@@ -474,6 +475,44 @@ export async function generateOverlay(
     });
   }
 
+  // Task closeout rule (required) - reinforces AGENTS.md contract for every session
+  sections.push({
+    key: "task_closeout",
+    text: [
+      "**Task Closeout Rule:** Before concluding ANY task (including trivial ones), run `$task-closeout-review` and append `## 任务后复核` to the final reply. Do not skip.",
+      "",
+      "**Required output format for OMX projects:**",
+      "```markdown",
+      "## 任务后复核",
+      "- 已触发 Skill: `task-closeout-review`",
+      "- 项目状态: `OMX`",
+      "- Notepad (MANUAL): `无需更新` / `建议更新` / `已更新`",
+      "- Project Memory: `无需更新` / `建议更新` / `已更新`",
+      "- AGENTS.md: `无需更新` / `建议更新` / `已更新` / `建议初始化`",
+      "- Skill: `无需更新` / `建议更新` / `已更新`",
+      "- 状态: `仅汇报，未执行` / `已执行`",
+      "- 原因: 一句话说明判断依据",
+      "```",
+      "",
+      "**Required output format for non-OMX projects:**",
+      "```markdown",
+      "## 任务后复核",
+      "- 已触发 Skill: `task-closeout-review`",
+      "- 项目状态: `Harness-aware` / `非 Harness` / `未确认`",
+      "- Memory: `无需更新` / `建议更新` / `已更新` / `不适用`",
+      "- Skill: `无需更新` / `建议更新` / `已更新` / `不适用`",
+      "- 状态: `仅汇报，未执行` / `已执行`",
+      "- 原因: 一句话说明判断依据",
+      "```",
+      "",
+      "**Rules:**",
+      "- The `## 任务后复核` block must NEVER be omitted, even if no updates are needed.",
+      "- Do NOT mark anything as `已更新` unless user explicitly approved the write.",
+      "- If `$task-closeout-review` skill is unavailable, still produce the block manually with: (a) changed files, (b) test results, (c) memory/skill update recommendations.",
+    ].join("\n"),
+    optional: false,
+  });
+
   // Compaction protocol (max 400 chars) - required
   sections.push({
     key: "compaction",
@@ -493,6 +532,17 @@ export async function generateOverlay(
   const safeBody = capBodyToMax(
     [
       { key: "session", text: truncate(sessionMeta, 200), optional: false },
+      {
+        key: "task_closeout",
+        text: [
+          "**Task Closeout Rule:** Before concluding ANY task, run `$task-closeout-review` and append `## 任务后复核` to the final reply. Do not skip.",
+          "",
+          "**OMX format:** `## 任务后复核` / 项目状态: `OMX` / Notepad / Project Memory / AGENTS.md / Skill / 状态 / 原因",
+          "**Non-OMX format:** `## 任务后复核` / 项目状态: `Harness-aware` / Memory / Skill / 状态 / 原因",
+          "**Rule:** Never omit the block. Do NOT mark `已更新` without user approval.",
+        ].join("\n"),
+        optional: false,
+      },
       {
         key: "compaction",
         text: `**Compaction Protocol:**\n${truncate(getCompactionInstructions(), 380)}`,
