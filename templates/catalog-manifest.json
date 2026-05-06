@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "2026.02.28.1",
+  "catalogVersion": "2026.04.22.1",
   "skills": [
     {
       "name": "autopilot",
@@ -275,6 +275,13 @@
     },
     {
       "name": "omx-setup",
+      "category": "utility",
+      "status": "active",
+      "core": false,
+      "internalRequired": false
+    },
+    {
+      "name": "task-closeout-review",
       "category": "utility",
       "status": "active",
       "core": false,

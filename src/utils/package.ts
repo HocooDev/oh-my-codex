@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
 
 /**
- * Get the package root directory (where agents/, skills/, prompts/ live).
+ * Get the package root directory (where agents/ and skills/ live).
  * Works from dist/utils/, src/utils/, and bin/.
  */
 export function getPackageRoot(): string {

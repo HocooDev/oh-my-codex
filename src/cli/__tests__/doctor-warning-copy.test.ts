@@ -238,158 +238,223 @@ command = "node"
 args = ["/tmp/team-server.js"]
 enabled = true
 `.trimStart(),
-			);
+      );
 
-			const res = runOmx(wd, ["doctor"], {
-				HOME: home,
-				CODEX_HOME: join(home, ".codex"),
-			});
-			if (shouldSkipForSpawnPermissions(res.error)) return;
-			assert.equal(res.status, 0, res.stderr || res.stdout);
-			assert.match(
-				res.stdout,
-				/Config: retired \[mcp_servers\.omx_team_run\] table still present; run "omx setup --force" to repair the config/,
-			);
-			assert.match(
-				res.stdout,
-				/MCP Servers: 1 servers configured, but retired \[mcp_servers\.omx_team_run\] is not supported; run "omx setup --force" to repair the config/,
-			);
-			assert.doesNotMatch(res.stdout, /Config: config\.toml has OMX entries/);
-			assert.doesNotMatch(
-				res.stdout,
-				/MCP Servers: 1 servers but no OMX servers yet \(expected before first setup; run "omx setup --force" once\)/,
-			);
-		} finally {
-			await rm(wd, { recursive: true, force: true });
-		}
-	});
+      const res = runOmx(wd, ['doctor'], {
+        HOME: home,
+        CODEX_HOME: join(home, '.codex'),
+      });
+      if (shouldSkipForSpawnPermissions(res.error)) return;
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+      assert.match(
+        res.stdout,
+        /Config: retired \[mcp_servers\.omx_team_run\] table still present; run "omx setup --force" to repair the config/,
+      );
+      assert.match(
+        res.stdout,
+        /MCP Servers: 1 servers configured, but retired \[mcp_servers\.omx_team_run\] is not supported; run "omx setup --force" to repair the config/,
+      );
+      assert.doesNotMatch(res.stdout, /Config: config\.toml has OMX entries/);
+      assert.doesNotMatch(
+        res.stdout,
+        /MCP Servers: 1 servers but no OMX servers yet \(expected before first setup; run "omx setup --force" once\)/,
+      );
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
 
-	it("warns when explore harness sources are packaged but cargo is unavailable", async () => {
-		const wd = await mkdtemp(join(tmpdir(), "omx-doctor-explore-copy-"));
-		try {
-			await withPackagedExploreHarnessHidden(async () => {
-				const home = join(wd, "home");
-				const codexDir = join(home, ".codex");
-				const fakeBin = join(wd, "bin");
-				await mkdir(codexDir, { recursive: true });
-				await mkdir(fakeBin, { recursive: true });
-				await writeFile(
-					join(fakeBin, "codex"),
-					'#!/bin/sh\necho "codex test"\n',
-				);
-				spawnSync("chmod", ["+x", join(fakeBin, "codex")], {
-					encoding: "utf-8",
-				});
+  it('warns when Windows still uses OMX-managed notify-hook routing', async () => {
+    if (process.platform !== 'win32') return;
+    const wd = await mkdtemp(join(tmpdir(), 'omx-doctor-copy-'));
+    try {
+      const home = join(wd, 'home');
+      const codexDir = join(home, '.codex');
+      await mkdir(codexDir, { recursive: true });
+      await writeFile(
+        join(codexDir, 'config.toml'),
+        [
+          '# oh-my-codex top-level settings (must be before any [table])',
+          'notify = ["node", "/tmp/legacy/dist/scripts/notify-hook.js"]',
+          'model_reasoning_effort = "high"',
+          'developer_instructions = "You have oh-my-codex installed."',
+          '',
+        ].join('\n'),
+      );
 
-				const res = runOmx(wd, ["doctor"], {
-					HOME: home,
-					CODEX_HOME: join(home, ".codex"),
-					PATH: fakeBin,
-				});
-				if (shouldSkipForSpawnPermissions(res.error)) return;
-				assert.equal(res.status, 0, res.stderr || res.stdout);
-				assert.match(
-					res.stdout,
-					/Explore Harness: (Rust harness sources are packaged, but no compatible packaged prebuilt or cargo was found \(install Rust or set OMX_EXPLORE_BIN for omx explore\)|not ready \(no packaged binary, OMX_EXPLORE_BIN, or cargo toolchain\))/,
-				);
-			});
-		} finally {
-			await rm(wd, { recursive: true, force: true });
-		}
-	});
+      const res = runOmx(wd, ['doctor'], {
+        HOME: home,
+        CODEX_HOME: codexDir,
+      });
+      if (shouldSkipForSpawnPermissions(res.error)) return;
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+      assert.match(
+        res.stdout,
+        /Config: Windows still uses OMX-managed notify-hook routing; run "omx setup --force" to switch to the watcher-first default and remove argv-sized notify payloads/,
+      );
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
 
-	it("passes explore harness check when a packaged native binary is present even without cargo", async () => {
-		await withPackagedExploreHarnessLock(async () => {
-			const wd = await mkdtemp(join(tmpdir(), "omx-doctor-explore-binary-"));
-			try {
-				const home = join(wd, "home");
-				const codexDir = join(home, ".codex");
-				const fakeBin = join(wd, "bin");
-				const packageBinDir = join(process.cwd(), "bin");
-				const packagedBinary = join(
-					packageBinDir,
-					process.platform === "win32"
-						? "omx-explore-harness.exe"
-						: "omx-explore-harness",
-				);
-				const packagedMeta = join(
-					packageBinDir,
-					"omx-explore-harness.meta.json",
-				);
-				const hadExistingBinary = existsSync(packagedBinary);
-				const hadExistingMeta = existsSync(packagedMeta);
+  it('warns when Windows explicitly disables watcher fallback and ignores user notify commands', async () => {
+    if (process.platform !== 'win32') return;
+    const wd = await mkdtemp(join(tmpdir(), 'omx-doctor-copy-'));
+    try {
+      const home = join(wd, 'home');
+      const codexDir = join(home, '.codex');
+      await mkdir(codexDir, { recursive: true });
+      await writeFile(
+        join(codexDir, 'config.toml'),
+        [
+          'notify = ["node", "C:/custom/user-notify.js"]',
+          '',
+          '[env]',
+          'OMX_NOTIFY_FALLBACK = "0"',
+          '',
+        ].join('\n'),
+      );
 
-				await mkdir(codexDir, { recursive: true });
-				await mkdir(fakeBin, { recursive: true });
-				await writeFile(
-					join(fakeBin, "codex"),
-					'#!/bin/sh\necho "codex test"\n',
-				);
-				spawnSync("chmod", ["+x", join(fakeBin, "codex")], {
-					encoding: "utf-8",
-				});
-				const fsPromises = await import("node:fs/promises");
-				const originalBinary = hadExistingBinary
-					? await fsPromises.readFile(packagedBinary)
-					: null;
-				const originalMeta = hadExistingMeta
-					? await fsPromises.readFile(packagedMeta, "utf-8")
-					: null;
-				await mkdir(packageBinDir, { recursive: true });
-				await writeFile(packagedBinary, '#!/bin/sh\necho "stub harness"\n');
-				await writeFile(
-					packagedMeta,
-					JSON.stringify({
-						binaryName:
-							process.platform === "win32"
-								? "omx-explore-harness.exe"
-								: "omx-explore-harness",
-						platform: process.platform,
-						arch: process.arch,
-					}),
-				);
-				spawnSync("chmod", ["+x", packagedBinary], { encoding: "utf-8" });
+      const res = runOmx(wd, ['doctor'], {
+        HOME: home,
+        CODEX_HOME: codexDir,
+      });
+      if (shouldSkipForSpawnPermissions(res.error)) return;
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+      assert.match(
+        res.stdout,
+        /Config: Windows explicitly disables watcher fallback via OMX_NOTIFY_FALLBACK = "0"; remove the opt-out or rerun "omx setup --force" to restore the watcher-first default/,
+      );
+      assert.doesNotMatch(res.stdout, /user-notify\.js/);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
 
-				try {
-					const res = runOmx(wd, ["doctor"], {
-						HOME: home,
-						CODEX_HOME: join(home, ".codex"),
-						PATH: fakeBin,
-					});
-					if (shouldSkipForSpawnPermissions(res.error)) return;
-					assert.equal(res.status, 0, res.stderr || res.stdout);
-					assert.match(
-						res.stdout,
-						/Explore Harness: ready \(packaged native binary:/,
-					);
-				} finally {
-					if (originalBinary) {
-						await writeFile(packagedBinary, originalBinary);
-						spawnSync("chmod", ["+x", packagedBinary], { encoding: "utf-8" });
-					} else {
-						await rm(packagedBinary, { force: true });
-					}
-					if (originalMeta !== null) {
-						await writeFile(packagedMeta, originalMeta);
-					} else {
-						await rm(packagedMeta, { force: true });
-					}
-				}
-			} finally {
-				await rm(wd, { recursive: true, force: true });
-			}
-		});
-	});
+  it('does not warn about stale OMX-managed routing for a user-owned notify-hook path', async () => {
+    if (process.platform !== 'win32') return;
+    const wd = await mkdtemp(join(tmpdir(), 'omx-doctor-copy-'));
+    try {
+      const home = join(wd, 'home');
+      const codexDir = join(home, '.codex');
+      await mkdir(codexDir, { recursive: true });
+      await writeFile(
+        join(codexDir, 'config.toml'),
+        [
+          'notify = ["node", "C:/custom/dist/scripts/notify-hook.js"]',
+          '',
+        ].join('\n'),
+      );
 
-	it("warns when explore routing is explicitly disabled in config.toml", async () => {
-		const wd = await mkdtemp(join(tmpdir(), "omx-doctor-explore-routing-"));
-		try {
-			const home = join(wd, "home");
-			const codexDir = join(home, ".codex");
-			await mkdir(codexDir, { recursive: true });
-			await writeFile(
-				join(codexDir, "config.toml"),
-				`
+      const res = runOmx(wd, ['doctor'], {
+        HOME: home,
+        CODEX_HOME: codexDir,
+      });
+      if (shouldSkipForSpawnPermissions(res.error)) return;
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+      assert.doesNotMatch(
+        res.stdout,
+        /Windows still uses OMX-managed notify-hook routing/,
+      );
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('warns when explore harness sources are packaged but cargo is unavailable', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-doctor-explore-copy-'));
+    try {
+      await withPackagedExploreHarnessHidden(async () => {
+        const home = join(wd, 'home');
+        const codexDir = join(home, '.codex');
+        const fakeBin = join(wd, 'bin');
+        await mkdir(codexDir, { recursive: true });
+        await mkdir(fakeBin, { recursive: true });
+        await writeFile(join(fakeBin, 'codex'), '#!/bin/sh\necho "codex test"\n');
+        spawnSync('chmod', ['+x', join(fakeBin, 'codex')], { encoding: 'utf-8' });
+
+        const res = runOmx(wd, ['doctor'], {
+          HOME: home,
+          CODEX_HOME: join(home, '.codex'),
+          PATH: fakeBin,
+        });
+        if (shouldSkipForSpawnPermissions(res.error)) return;
+        assert.equal(res.status, 0, res.stderr || res.stdout);
+        assert.match(
+          res.stdout,
+          /Explore Harness: (Rust harness sources are packaged, but no compatible packaged prebuilt or cargo was found \(install Rust or set OMX_EXPLORE_BIN for omx explore\)|not ready \(no packaged binary, OMX_EXPLORE_BIN, or cargo toolchain\))/,
+        );
+      });
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('passes explore harness check when a packaged native binary is present even without cargo', async () => {
+    await withPackagedExploreHarnessLock(async () => {
+      const wd = await mkdtemp(join(tmpdir(), 'omx-doctor-explore-binary-'));
+      try {
+        const home = join(wd, 'home');
+        const codexDir = join(home, '.codex');
+        const fakeBin = join(wd, 'bin');
+        const packageBinDir = join(process.cwd(), 'bin');
+        const packagedBinary = join(packageBinDir, process.platform === 'win32' ? 'omx-explore-harness.exe' : 'omx-explore-harness');
+        const packagedMeta = join(packageBinDir, 'omx-explore-harness.meta.json');
+        const hadExistingBinary = existsSync(packagedBinary);
+        const hadExistingMeta = existsSync(packagedMeta);
+
+        await mkdir(codexDir, { recursive: true });
+        await mkdir(fakeBin, { recursive: true });
+        await writeFile(join(fakeBin, 'codex'), '#!/bin/sh\necho "codex test"\n');
+        spawnSync('chmod', ['+x', join(fakeBin, 'codex')], { encoding: 'utf-8' });
+        const fsPromises = await import('node:fs/promises');
+        const originalBinary = hadExistingBinary ? await fsPromises.readFile(packagedBinary) : null;
+        const originalMeta = hadExistingMeta ? await fsPromises.readFile(packagedMeta, 'utf-8') : null;
+        await mkdir(packageBinDir, { recursive: true });
+        await writeFile(packagedBinary, '#!/bin/sh\necho "stub harness"\n');
+        await writeFile(packagedMeta, JSON.stringify({ binaryName: process.platform === 'win32' ? 'omx-explore-harness.exe' : 'omx-explore-harness', platform: process.platform, arch: process.arch }));
+        spawnSync('chmod', ['+x', packagedBinary], { encoding: 'utf-8' });
+
+        try {
+          const res = runOmx(wd, ['doctor'], {
+            HOME: home,
+            CODEX_HOME: join(home, '.codex'),
+            PATH: fakeBin,
+          });
+          if (shouldSkipForSpawnPermissions(res.error)) return;
+          assert.equal(res.status, 0, res.stderr || res.stdout);
+          assert.match(
+            res.stdout,
+            /Explore Harness: ready \(packaged native binary:/,
+          );
+        } finally {
+          if (originalBinary) {
+            await writeFile(packagedBinary, originalBinary);
+            spawnSync('chmod', ['+x', packagedBinary], { encoding: 'utf-8' });
+          } else {
+            await rm(packagedBinary, { force: true });
+          }
+          if (originalMeta !== null) {
+            await writeFile(packagedMeta, originalMeta);
+          } else {
+            await rm(packagedMeta, { force: true });
+          }
+        }
+      } finally {
+        await rm(wd, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('warns when explore routing is explicitly disabled in config.toml', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-doctor-explore-routing-'));
+    try {
+      const home = join(wd, 'home');
+      const codexDir = join(home, '.codex');
+      await mkdir(codexDir, { recursive: true });
+      await writeFile(
+        join(codexDir, 'config.toml'),
+        `
 [shell_environment_policy.set]
 USE_OMX_EXPLORE_CMD = "off"
 `.trimStart(),

@@ -6,15 +6,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setup } from '../setup.js';
 import { readCatalogManifest } from '../../catalog/reader.js';
-import {
-  NON_NATIVE_AGENT_PROMPT_ASSETS,
-  getInstallableNativeAgentNames,
-} from '../../agents/policy.js';
+import { getInstallableNativeAgentNames } from '../../agents/policy.js';
 
 describe('omx setup prompt/native-agent overwrite behavior', () => {
   const obsoleteNativeAgentField = ['skill', 'ref'].join('_');
 
-  it('installs setup-owned prompts separately from active/internal native agents', async () => {
+  it('installs agent role skills plus active/internal native agents', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-setup-prompts-'));
     const previousCwd = process.cwd();
     try {
@@ -23,41 +20,27 @@ describe('omx setup prompt/native-agent overwrite behavior', () => {
 
       await setup({ scope: 'project' });
 
-      const promptsDir = join(wd, '.codex', 'prompts');
+      const skillsDir = join(wd, '.codex', 'skills');
       const nativeAgentsDir = join(wd, '.codex', 'agents');
-      const installedPrompts = new Set(await readdir(promptsDir));
+      const installedSkills = new Set(await readdir(skillsDir));
       const installedNativeAgents = new Set(await readdir(nativeAgentsDir));
 
-      assert.equal(installedPrompts.has('executor.md'), true);
-      assert.equal(installedPrompts.has('team-executor.md'), true);
-      assert.equal(installedPrompts.has('code-reviewer.md'), true);
-      assert.equal(installedPrompts.has('code-simplifier.md'), true);
-
-      for (const promptOnlyAgent of [
-        'style-reviewer',
-        'quality-reviewer',
-        'api-reviewer',
-        'performance-reviewer',
-        'product-manager',
-        'ux-researcher',
-        'information-architect',
-        'product-analyst',
-        'qa-tester',
-        'quality-strategist',
+      for (const roleSkill of [
+        'agent-executor',
+        'agent-team-executor',
+        'agent-code-reviewer',
+        'agent-style-reviewer',
+        'agent-quality-reviewer',
+        'agent-api-reviewer',
+        'agent-performance-reviewer',
+        'agent-product-manager',
+        'agent-ux-researcher',
+        'agent-information-architect',
+        'agent-product-analyst',
+        'agent-sisyphus-lite',
+        'agent-code-simplifier',
       ]) {
-        assert.equal(
-          installedPrompts.has(`${promptOnlyAgent}.md`),
-          true,
-          `expected setup to preserve prompt-only role ${promptOnlyAgent}.md`,
-        );
-      }
-
-      for (const promptAsset of NON_NATIVE_AGENT_PROMPT_ASSETS) {
-        assert.equal(
-          installedPrompts.has(`${promptAsset}.md`),
-          true,
-          `expected setup to preserve explicit prompt asset ${promptAsset}.md`,
-        );
+        assert.equal(installedSkills.has(roleSkill), true, `expected setup to install role skill ${roleSkill}`);
       }
 
       const installableNativeAgents = getInstallableNativeAgentNames(readCatalogManifest());
@@ -88,7 +71,7 @@ describe('omx setup prompt/native-agent overwrite behavior', () => {
     }
   });
 
-  it('preserves setup-owned prompt assets and removes unknown prompts on --force', async () => {
+  it('removes stale legacy prompts on --force', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-setup-prompts-'));
     const previousCwd = process.cwd();
     try {
@@ -97,22 +80,20 @@ describe('omx setup prompt/native-agent overwrite behavior', () => {
 
       await setup({ scope: 'project' });
 
-      const validPrompts = ['style-reviewer.md', 'quality-reviewer.md', 'sisyphus-lite.md'];
-      for (const validPrompt of validPrompts) {
-        assert.equal(existsSync(join(wd, '.codex', 'prompts', validPrompt)), true);
+      await mkdir(join(wd, '.codex', 'prompts'), { recursive: true });
+      const stalePrompts = ['style-reviewer.md', 'quality-reviewer.md', 'sisyphus-lite.md'];
+      for (const stalePrompt of stalePrompts) {
+        const stalePath = join(wd, '.codex', 'prompts', stalePrompt);
+        await writeFile(stalePath, `# stale ${stalePrompt}\n`);
+        assert.equal(existsSync(stalePath), true);
       }
-
-      const unknownPromptPath = join(wd, '.codex', 'prompts', 'unclassified-local.md');
-      await writeFile(unknownPromptPath, '# unclassified local prompt\n');
-      assert.equal(existsSync(unknownPromptPath), true);
 
       await setup({ scope: 'project', force: true });
 
-      for (const validPrompt of validPrompts) {
-        assert.equal(existsSync(join(wd, '.codex', 'prompts', validPrompt)), true);
+      for (const stalePrompt of stalePrompts) {
+        assert.equal(existsSync(join(wd, '.codex', 'prompts', stalePrompt)), false);
       }
-      assert.equal(existsSync(unknownPromptPath), false);
-      assert.equal(existsSync(join(wd, '.codex', 'prompts', 'executor.md')), true);
+      assert.equal(existsSync(join(wd, '.codex', 'prompts', 'executor.md')), false);
     } finally {
       process.chdir(previousCwd);
       await rm(wd, { recursive: true, force: true });

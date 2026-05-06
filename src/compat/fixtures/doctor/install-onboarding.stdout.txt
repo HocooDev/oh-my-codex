@@ -11,7 +11,7 @@ Resolved setup scope: user
   [OK] Native hooks: hooks.json not found yet (expected before first setup)
   [OK] Explore routing: enabled by default
   [OK] Lore commit guard: enabled by default
-  [!!] Prompts: prompts directory not found
+  [!!] Agent skills: skills directory not found
   [!!] Skills: skills directory not found
   [OK] Legacy skill roots: no ~/.agents/skills overlap detected
   [!!] AGENTS.md: not found in <CODEX_HOME>/AGENTS.md (run omx setup --scope user)

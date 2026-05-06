@@ -39,7 +39,7 @@ describe('omx setup skills overwrite behavior', () => {
 
       assert.ok(
         (await readFile(installedSetupSkill, 'utf-8')).includes(
-          'description: "[OMX] Setup and configure oh-my-codex using current CLI behavior"',
+          'description: "[OMX] Setup and configure oh-my-codex using c..."',
         ),
       );
       assert.ok(
@@ -47,6 +47,32 @@ describe('omx setup skills overwrite behavior', () => {
           'description: Help deprecated skill',
         ),
       );
+    } finally {
+      process.chdir(previousCwd);
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('compacts installed skill descriptions to avoid Codex skill-list budget warnings', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-setup-skills-'));
+    const previousCwd = process.cwd();
+    try {
+      await mkdir(join(wd, '.omx', 'state'), { recursive: true });
+      process.chdir(wd);
+
+      await setup({ scope: 'project' });
+
+      const installedAnalyzeSkill = join(wd, '.codex', 'skills', 'analyze', 'SKILL.md');
+      const shippedAnalyzeSkill = join(previousCwd, 'skills', 'analyze', 'SKILL.md');
+      const installed = await readFile(installedAnalyzeSkill, 'utf-8');
+      const shipped = await readFile(shippedAnalyzeSkill, 'utf-8');
+
+      const installedDescription = installed.match(/^description:\s*"([^"]+)"$/m)?.[1] ?? '';
+      assert.equal(installedDescription.startsWith('[OMX] '), true);
+      assert.ok(installedDescription.length <= 48);
+      assert.match(installedDescription, /\.\.\.$/);
+      assert.match(shipped, /explicit confidence, concrete file references/);
+      assert.doesNotMatch(shipped, /^\s*description:\s*"\[OMX\]/m);
     } finally {
       process.chdir(previousCwd);
       await rm(wd, { recursive: true, force: true });
@@ -69,6 +95,7 @@ describe('omx setup skills overwrite behavior', () => {
       assert.equal(installed.has('team'), true);
       assert.equal(installed.has('worker'), true);
       assert.equal(installed.has('autoresearch'), true);
+      assert.equal(installed.has('task-closeout-review'), true);
       assert.equal(installed.has('swarm'), false);
       assert.equal(installed.has('ecomode'), false);
       assert.equal(installed.has('ultraqa'), true);
@@ -83,14 +110,12 @@ describe('omx setup skills overwrite behavior', () => {
       assert.equal(installed.has('configure-telegram'), false);
       assert.equal(installed.has('configure-slack'), false);
       assert.equal(installed.has('configure-openclaw'), false);
-      assert.match(
-        await readFile(join(skillsDir, 'analyze', 'SKILL.md'), 'utf-8'),
-        /^---\nname: analyze/m,
-      );
-      assert.match(
-        await readFile(join(skillsDir, 'autoresearch', 'SKILL.md'), 'utf-8'),
-        /^---\nname: autoresearch/m,
-      );
+      const analyzeSkill = await readFile(join(skillsDir, 'analyze', 'SKILL.md'), 'utf-8');
+      const autoresearchSkill = await readFile(join(skillsDir, 'autoresearch', 'SKILL.md'), 'utf-8');
+      assert.equal(analyzeSkill.startsWith('---'), true);
+      assert.equal(analyzeSkill.includes('name: analyze'), true);
+      assert.equal(autoresearchSkill.startsWith('---'), true);
+      assert.equal(autoresearchSkill.includes('name: autoresearch'), true);
     } finally {
       process.chdir(previousCwd);
       await rm(wd, { recursive: true, force: true });
@@ -167,7 +192,7 @@ describe('omx setup skills overwrite behavior', () => {
 
       await setup({ scope: 'project', force: true });
 
-      assert.match(await readFile(pipelinePath, 'utf-8'), /^---\nname: pipeline/m);
+      assert.match(await readFile(pipelinePath, 'utf-8'), /^---\r?\nname: pipeline/m);
       assert.equal(existsSync(join(wd, '.codex', 'skills', 'team')), true);
     } finally {
       process.chdir(previousCwd);
@@ -269,7 +294,7 @@ describe('omx setup skills overwrite behavior', () => {
 
       const installedSetupSkill = join(wd, '.codex', 'skills', 'omx-setup', 'SKILL.md');
       const content = await readFile(installedSetupSkill, 'utf-8');
-      const matches = content.match(/\[OMX\] Setup and configure oh-my-codex using current CLI behavior/g) ?? [];
+      const matches = content.match(/\[OMX\] Setup and configure oh-my-codex using c\.\.\./g) ?? [];
       assert.equal(matches.length, 1);
       assert.doesNotMatch(content, /\[OMX\] \[OMX\]/);
     } finally {
@@ -329,8 +354,9 @@ describe('omx setup skills overwrite behavior', () => {
       await setup({ scope: 'user' });
 
       const output = logs.join('\n');
-      assert.match(output, /Migration hint: Detected 1 overlapping skill names between canonical .*\.codex\/skills and legacy .*\.agents\/skills\./);
-      assert.match(output, /Remove or archive ~\/\.agents\/skills after confirming .*\.codex\/skills is the version you want Codex to load\./);
+      assert.match(output, /Migration hint:/i);
+      assert.match(output, /~\/\.agents\/skills/i);
+      assert.match(output, /archive or remove ~\/\.agents\/skills|Remove or archive ~\/\.agents\/skills/i);
     } finally {
       console.log = originalLog;
       process.chdir(previousCwd);

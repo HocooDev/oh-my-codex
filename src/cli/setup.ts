@@ -25,10 +25,7 @@ import {
 	codexPromptsDir,
 	codexAgentsDir,
 	userSkillsDir,
-	omxStateDir,
 	detectLegacySkillRootOverlap,
-	omxPlansDir,
-	omxLogsDir,
 } from "../utils/paths.js";
 import {
 	buildMergedConfig,
@@ -111,6 +108,8 @@ import {
 	resolveAgentsModelTableContext,
 	upsertAgentsModelTable,
 } from "../utils/agents-model-table.js";
+import { promptSurfaceSkillPath } from "../utils/prompt-surface.js";
+import { spawnPlatformCommandSync } from "../utils/platform-command.js";
 
 interface SetupOptions {
 	codexVersionProbe?: () => string | null;
@@ -172,6 +171,8 @@ interface SetupBackupContext {
 	backupRoot: string;
 	baseRoot: string;
 }
+
+const OMX_INSTALLED_SKILL_DESCRIPTION_MAX_CHARS = 48;
 
 interface ManagedConfigResult {
 	finalConfig: string;
@@ -420,6 +421,7 @@ export function parseSkillFrontmatter(
 
 	let name: string | undefined;
 	let description: string | undefined;
+	const seenTopLevelKeys = new Set<string>();
 	const lines = frontmatterMatch[1].split(/\r?\n/);
 
 	for (const [index, rawLine] of lines.entries()) {
@@ -436,6 +438,10 @@ export function parseSkillFrontmatter(
 		}
 
 		const [, key, rawValue] = match;
+		if (seenTopLevelKeys.has(key)) {
+			throw new Error(`${filePath} has duplicate field "${key}"`);
+		}
+		seenTopLevelKeys.add(key);
 		if (!rawValue.trim()) continue;
 
 		const parsedValue = parseSkillFrontmatterScalar(rawValue, key, filePath);
@@ -464,23 +470,39 @@ function rewriteInstalledSkillDescriptionBadge(
 	content: string,
 	filePath = "SKILL.md",
 ): string {
-	const metadata = parseSkillFrontmatter(content, filePath);
-	const badgePrefix = "[OMX] ";
-	const displayDescription = metadata.description.startsWith(badgePrefix)
-		? metadata.description
-		: `${badgePrefix}${metadata.description}`;
+  const metadata = parseSkillFrontmatter(content, filePath);
+  const badgePrefix = "[OMX] ";
+  const brandedDescription = metadata.description.startsWith(badgePrefix)
+    ? metadata.description
+    : `${badgePrefix}${metadata.description}`;
+  const displayDescription = compactInstalledSkillDescription(
+    brandedDescription,
+  );
 
-	return content.replace(
-		/^---\r?\n([\s\S]*?)\r?\n---/,
-		(frontmatterBlock, body) => {
-			const rewrittenBody = body.replace(
-				/^([ \t]*)description:(.*)$/m,
-				(_line: string, indent: string) =>
-					`${indent}description: ${JSON.stringify(displayDescription)}`,
-			);
-			return frontmatterBlock.replace(body, rewrittenBody);
-		},
-	);
+  return content.replace(
+    /^---\r?\n([\s\S]*?)\r?\n---/,
+    (frontmatterBlock, body) => {
+      const rewrittenBody = body.replace(
+        /^([ \t]*)description:(.*)$/m,
+        (_line: string, indent: string) =>
+          `${indent}description: ${JSON.stringify(displayDescription)}`,
+      );
+      return frontmatterBlock.replace(body, rewrittenBody);
+    },
+  );
+}
+
+function compactInstalledSkillDescription(description: string): string {
+  const chars = [...description];
+  if (chars.length <= OMX_INSTALLED_SKILL_DESCRIPTION_MAX_CHARS) {
+    return description;
+  }
+
+  const suffix = "...";
+  return `${chars
+    .slice(0, OMX_INSTALLED_SKILL_DESCRIPTION_MAX_CHARS - suffix.length)
+    .join("")
+    .trimEnd()}${suffix}`;
 }
 
 async function buildLegacySkillOverlapNotice(
@@ -1110,7 +1132,7 @@ async function cleanupPluginModeLegacyNativeAgents(
 		if (agentStatusByName && !isNativeAgentInstallableStatus(status)) continue;
 
 		const dst = join(agentsDir, `${name}.toml`);
-		const promptPath = join(pkgRoot, "prompts", `${name}.md`);
+		const promptPath = promptSurfaceSkillPath(join(pkgRoot, "skills"), name);
 		if (!existsSync(dst) || !existsSync(promptPath)) continue;
 
 		const promptContent = await readFile(promptPath, "utf-8");
@@ -1553,21 +1575,22 @@ export async function setup(options: SetupOptions = {}): Promise<void> {
 
 	// Step 1: Ensure directories exist
 	console.log("[1/8] Creating directories...");
+	const projectOmxDir = join(projectRoot, ".omx");
 	const dirs = isPluginInstallMode
 		? [
 				scopeDirs.codexHomeDir,
-				omxStateDir(projectRoot),
-				omxPlansDir(projectRoot),
-				omxLogsDir(projectRoot),
+				join(projectOmxDir, "state"),
+				join(projectOmxDir, "plans"),
+				join(projectOmxDir, "logs"),
 			]
 		: [
 				scopeDirs.codexHomeDir,
 				scopeDirs.promptsDir,
 				scopeDirs.skillsDir,
 				scopeDirs.nativeAgentsDir,
-				omxStateDir(projectRoot),
-				omxPlansDir(projectRoot),
-				omxLogsDir(projectRoot),
+				join(projectOmxDir, "state"),
+				join(projectOmxDir, "plans"),
+				join(projectOmxDir, "logs"),
 			];
 	for (const dir of dirs) {
 		if (!dryRun) {
@@ -2429,12 +2452,40 @@ async function installPrompts(
 	options: SetupOptions,
 ): Promise<SetupCategorySummary> {
 	const summary = createEmptyCategorySummary();
-	if (!existsSync(srcDir)) return summary;
 
 	const manifest = tryReadCatalogManifest();
 	const agentStatusByName = manifest
 		? getCatalogAgentStatusByName(manifest)
 		: null;
+	if (!existsSync(srcDir)) {
+		if (options.force && manifest && existsSync(dstDir)) {
+			const installedFiles = await readdir(dstDir);
+			for (const file of installedFiles) {
+				if (!file.endsWith(".md")) continue;
+				const promptName = file.slice(0, -3);
+				if (!isSetupPromptAssetName(promptName, manifest)) continue;
+
+				const legacyPromptPath = join(dstDir, file);
+				if (!existsSync(legacyPromptPath)) continue;
+
+				if (await ensureBackup(legacyPromptPath, true, backupContext, options)) {
+					summary.backedUp += 1;
+				}
+				if (!options.dryRun) {
+					await rm(legacyPromptPath, { force: true });
+				}
+				summary.removed += 1;
+				if (options.verbose) {
+					const prefix = options.dryRun
+						? "would remove legacy setup prompt"
+						: "removed legacy setup prompt";
+					const label = agentStatusByName?.get(promptName) ?? "legacy";
+					console.log(`  ${prefix} ${file} (status: ${label})`);
+				}
+			}
+		}
+		return summary;
+	}
 
 	const files = await readdir(srcDir);
 
@@ -2598,7 +2649,7 @@ async function refreshNativeAgentConfigs(
 			continue;
 		}
 
-		const promptPath = join(pkgRoot, "prompts", `${name}.md`);
+		const promptPath = promptSurfaceSkillPath(join(pkgRoot, "skills"), name);
 		if (!existsSync(promptPath)) {
 			continue;
 		}
@@ -2734,7 +2785,9 @@ export async function installSkills(
 		skillName: string,
 		status: string | undefined,
 	): boolean =>
-		isCatalogInstallableStatus(status) || installableSkillNames.has(skillName);
+		isCatalogInstallableStatus(status) ||
+		installableSkillNames.has(skillName) ||
+		skillName.startsWith("agent-");
 	const entries = await readdir(srcDir, { withFileTypes: true });
 	const staleCandidateSkillNames = new Set(
 		manifest?.skills.map((skill) => skill.name) ?? [],

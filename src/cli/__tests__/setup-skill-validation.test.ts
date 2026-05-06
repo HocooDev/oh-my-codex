@@ -33,6 +33,15 @@ describe('skill frontmatter validation', () => {
       /unterminated quoted string/i,
     );
   });
+
+  it('rejects SKILL.md frontmatter with duplicate top-level fields', () => {
+    const content = `---\nname: help\ndescription: "Guide"\nname: duplicate-help\n---\n\n# Help\n`;
+
+    assert.throws(
+      () => parseSkillFrontmatter(content, '/tmp/help/SKILL.md'),
+      /duplicate field "name"/i,
+    );
+  });
 });
 
 describe('omx setup skill validation', () => {
@@ -54,7 +63,7 @@ describe('omx setup skill validation', () => {
           { backupRoot: join(root, 'backups'), baseRoot: root },
           { force: false, dryRun: false, verbose: false },
         ),
-        /src-skills\/ask\/SKILL\.md.*unterminated quoted string/i,
+        /src-skills[\\/]+ask[\\/]+SKILL\.md.*unterminated quoted string/i,
       );
 
       assert.equal(existsSync(join(dstDir, 'ask', 'SKILL.md')), false);

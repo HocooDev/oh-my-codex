@@ -8,7 +8,6 @@ import { join } from "path";
 import {
 	codexHome,
 	codexConfigPath,
-	codexPromptsDir,
 	userSkillsDir,
 	projectSkillsDir,
 	omxStateDir,
@@ -27,7 +26,9 @@ import {
 } from "./explore.js";
 import { getPackageRoot } from "../utils/package.js";
 import {
+	hasExplicitNotifyFallbackOptOut,
 	hasLegacyOmxTeamRunTable,
+	isOmxManagedNotifyRouting,
 	getModelContextRecommendation,
 } from "../config/generator.js";
 import { getMissingManagedCodexHookEvents } from "../config/codex-hooks.js";
@@ -78,7 +79,7 @@ interface DoctorPaths {
 	codexHomeDir: string;
 	configPath: string;
 	hooksPath: string;
-	promptsDir: string;
+	agentSkillsDir: string;
 	skillsDir: string;
 	stateDir: string;
 }
@@ -103,7 +104,7 @@ function resolveDoctorPaths(cwd: string, scope: DoctorSetupScope): DoctorPaths {
 			codexHomeDir,
 			configPath: join(codexHomeDir, "config.toml"),
 			hooksPath: join(codexHomeDir, "hooks.json"),
-			promptsDir: join(codexHomeDir, "prompts"),
+			agentSkillsDir: projectSkillsDir(cwd),
 			skillsDir: projectSkillsDir(cwd),
 			stateDir: omxStateDir(cwd),
 		};
@@ -113,7 +114,7 @@ function resolveDoctorPaths(cwd: string, scope: DoctorSetupScope): DoctorPaths {
 		codexHomeDir: codexHome(),
 		configPath: codexConfigPath(),
 		hooksPath: join(codexHome(), "hooks.json"),
-		promptsDir: codexPromptsDir(),
+		agentSkillsDir: userSkillsDir(),
 		skillsDir: userSkillsDir(),
 		stateDir: omxStateDir(cwd),
 	};
@@ -177,9 +178,9 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
 	// Check 4.6: Lore commit guard default
 	checks.push(await checkLoreCommitGuard(paths.configPath));
 
-	// Check 5: Prompts installed
+	// Check 5: Agent role skills installed
 	checks.push(
-		await checkPrompts(paths.promptsDir, scopeResolution.installMode),
+		await checkPrompts(paths.agentSkillsDir, scopeResolution.installMode),
 	);
 
 	// Check 6: Skills installed
@@ -771,6 +772,24 @@ async function checkConfig(configPath: string): Promise<Check> {
 			};
 		}
 
+		if (process.platform === "win32" && isOmxManagedNotifyRouting(content)) {
+			return {
+				name: "Config",
+				status: "warn",
+				message:
+					'Windows still uses OMX-managed notify-hook routing; run "omx setup --force" to switch to the watcher-first default and remove argv-sized notify payloads',
+			};
+		}
+
+		if (process.platform === "win32" && hasExplicitNotifyFallbackOptOut(content)) {
+			return {
+				name: "Config",
+				status: "warn",
+				message:
+					'Windows explicitly disables watcher fallback via OMX_NOTIFY_FALLBACK = "0"; remove the opt-out or rerun "omx setup --force" to restore the watcher-first default',
+			};
+		}
+
 		const hasOmx = content.includes("omx_") || content.includes("oh-my-codex");
 		if (hasOmx) {
 			return {
@@ -1047,41 +1066,43 @@ async function checkPrompts(
 ): Promise<Check> {
 	if (installMode === "plugin") {
 		return {
-			name: "Prompts",
+			name: "Agent skills",
 			status: "pass",
 			message:
-				"plugin mode intentionally omits setup-owned prompts; Codex plugin discovery supplies workflow surfaces",
+				"plugin mode intentionally omits setup-owned agent role skills; Codex plugin discovery supplies role surfaces",
 		};
 	}
 
 	const expectations = getCatalogExpectations();
 	if (!existsSync(dir)) {
 		return {
-			name: "Prompts",
+			name: "Agent skills",
 			status: "warn",
-			message: "prompts directory not found",
+			message: "skills directory not found",
 		};
 	}
 	try {
-		const files = await readdir(dir);
-		const mdFiles = files.filter((f) => f.endsWith(".md"));
-		if (mdFiles.length >= expectations.promptMin) {
+		const entries = await readdir(dir, { withFileTypes: true });
+		const roleSkillDirs = entries.filter(
+			(entry) => entry.isDirectory() && entry.name.startsWith("agent-"),
+		);
+		if (roleSkillDirs.length >= expectations.promptMin) {
 			return {
-				name: "Prompts",
+				name: "Agent skills",
 				status: "pass",
-				message: `${mdFiles.length} agent prompts installed`,
+				message: `${roleSkillDirs.length} agent role skills installed`,
 			};
 		}
 		return {
-			name: "Prompts",
+			name: "Agent skills",
 			status: "warn",
-			message: `${mdFiles.length} prompts (expected >= ${expectations.promptMin})`,
+			message: `${roleSkillDirs.length} agent role skills (expected >= ${expectations.promptMin})`,
 		};
 	} catch {
 		return {
-			name: "Prompts",
+			name: "Agent skills",
 			status: "fail",
-			message: "cannot read prompts directory",
+			message: "cannot read skills directory",
 		};
 	}
 }
