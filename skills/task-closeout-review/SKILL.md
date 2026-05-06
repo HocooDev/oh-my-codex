@@ -1,6 +1,6 @@
 ---
 name: task-closeout-review
-description: 在每次任务结束时执行统一的收尾复核，显式汇报是否需要更新项目 Memory、全局或项目 Skill、以及相关规则入口。支持 OMX 项目自动检测：若检测到 OMX，Memory 写入 .omx/notepad.md MANUAL section，并评估是否需要更新 AGENTS.md。
+description: 在每次任务结束时执行统一的收尾复核，并按当前用户语言环境输出。显式汇报是否需要更新项目 Memory、全局或项目 Skill、以及相关规则入口。支持 OMX 项目自动检测：若检测到 OMX，Memory 写入 .omx/notepad.md MANUAL section，并评估是否需要更新 AGENTS.md。
 ---
 
 # Task Closeout Review
@@ -127,9 +127,18 @@ omx project-memory add-note --input '{"category":"architecture", "content":"..."
 
 ## 输出要求
 
-最终回复中必须追加一个可见区块，标题固定为 `## 任务后复核`，该区块不得省略。
+### 输出语言选择（必须先做）
 
-**OMX 项目输出格式：**
+在生成收尾区块前，先识别当前用户语言环境：
+
+1. 优先使用用户本轮请求的主要语言。
+2. 若本轮请求混合多种语言，使用用户任务表达中占主导地位的自然语言。
+3. 若无法明确判断，使用最终回复正文采用的语言。
+4. 代码标识符、文件路径、命令、`Skill` 名称、`OMX`、`AGENTS.md`、`Notepad (MANUAL)`、`Project Memory` 等专有名词可保持原文。
+
+最终回复中必须追加一个可见区块，该区块不得省略。中文语言环境下标题固定为 `## 任务后复核`，并使用下面的中文固定格式；非中文语言环境下，应使用对应语言的标题、字段名、枚举值和原因说明，并保持字段顺序与语义一致。
+
+**中文 / OMX 项目输出格式：**
 
 ```markdown
 ## 任务后复核
@@ -143,7 +152,7 @@ omx project-memory add-note --input '{"category":"architecture", "content":"..."
 - 原因: 一句话说明判断依据
 ```
 
-**非 OMX 项目输出格式：**
+**中文 / 非 OMX 项目输出格式：**
 
 ```markdown
 ## 任务后复核
@@ -155,18 +164,52 @@ omx project-memory add-note --input '{"category":"architecture", "content":"..."
 - 原因: 一句话说明判断依据
 ```
 
-- 若本次还实际触发了其他相关 Skill，可在 `已触发 Skill` 中并列列出。
-- 若已得到用户明确批准并完成了写入，对应字段写为 `已更新`；否则写为 `建议更新` 或 `无需更新`。
+**English / OMX project output format:**
+
+```markdown
+## Task Closeout Review
+- Triggered Skill: `task-closeout-review`
+- Project status: `OMX`
+- Notepad (MANUAL): `No update needed` / `Update recommended` / `Updated`
+- Project Memory: `No update needed` / `Update recommended` / `Updated`
+- AGENTS.md: `No update needed` / `Update recommended` / `Updated` / `Initialization recommended`
+- Skill: `No update needed` / `Update recommended` / `Updated`
+- Status: `Report only, not executed` / `Executed`
+- Reason: One sentence explaining the decision
+```
+
+**English / non-OMX project output format:**
+
+```markdown
+## Task Closeout Review
+- Triggered Skill: `task-closeout-review`
+- Project status: `Harness-aware` / `Non-Harness` / `Unconfirmed`
+- Memory: `No update needed` / `Update recommended` / `Updated` / `N/A`
+- Skill: `No update needed` / `Update recommended` / `Updated` / `N/A`
+- Status: `Report only, not executed` / `Executed`
+- Reason: One sentence explaining the decision
+```
+
+**其他语言输出格式：**
+
+- 将标题、字段名、状态枚举和原因说明自然翻译为当前用户语言。
+- 保持上述模板的字段顺序和语义，不得删减字段。
+- 专有名词、代码标识符、路径、命令和 Skill 名称可保持原文。
+- 若某个状态枚举难以自然翻译，优先选择简短、明确、可与中文/英文含义一一对应的表达。
+
+- 若本次还实际触发了其他相关 Skill，可在对应语言的 `已触发 Skill` / `Triggered Skill` 字段中并列列出。
+- 若已得到用户明确批准并完成了写入，对应字段写为 `已更新` / `Updated` / 对应语言的“已更新”；否则写为 `建议更新` / `Update recommended` / 对应语言的“建议更新”，或 `无需更新` / `No update needed` / 对应语言的“无需更新”。
 
 ---
 
 ## 执行顺序
 1. 临近任务结束时，先回顾本次实际产出与结论。
-2. **执行 OMX 检测**，确定走 OMX 分支还是标准分支。
-3. 判断是否需要更新 Memory（OMX：notepad MANUAL + project-memory；标准：MEMORY_INDEX）。
-4. （OMX 专属）判断是否需要生成或更新 AGENTS.md。
-5. 判断是否需要更新 Skill / command / rule。
-6. 如本次任务还要求写工作日志，先完成日志动作，再输出 `## 任务后复核` 区块。
+2. 识别当前用户语言环境，确定收尾区块使用的语言。
+3. **执行 OMX 检测**，确定走 OMX 分支还是标准分支。
+4. 判断是否需要更新 Memory（OMX：notepad MANUAL + project-memory；标准：MEMORY_INDEX）。
+5. （OMX 专属）判断是否需要生成或更新 AGENTS.md。
+6. 判断是否需要更新 Skill / command / rule。
+7. 如本次任务还要求写工作日志，先完成日志动作，再输出对应语言的收尾复核区块。
 
 ## 禁止事项
 - 不得因为"没有更新动作"就省略复核区块。
@@ -174,3 +217,5 @@ omx project-memory add-note --input '{"category":"architecture", "content":"..."
 - 不得未获批准就自动写入任何持久化文件（无论是 OMX 还是标准分支）。
 - 不得把 legacy 迁移任务静默并入日常收尾检查。
 - OMX 分支中，不得绕过 `omx notepad` / `omx project-memory` CLI，直接操作原始文件。
+- 不得在非中文语言环境下强制输出中文字段；中文语言环境仍必须使用既有中文固定格式。
+- 不得混用多种自然语言；但代码标识符、路径、命令、Skill 名称和专有名词可保持原文。
