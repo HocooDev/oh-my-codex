@@ -1,13 +1,12 @@
 import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { stdin as processStdin, stdout as processStdout } from 'node:process';
 import { parsePaneIdFromTmuxOutput } from '../hud/tmux.js';
 import { buildSendPaneArgvs } from '../notifications/tmux-detector.js';
 import { sleepSync } from '../utils/sleep.js';
 import { sanitizeReplyInput } from '../notifications/reply-listener.js';
 import { getCurrentTmuxPaneId } from '../notifications/tmux.js';
-import { getStatePath } from '../mcp/state-paths.js';
 import { TRACKED_WORKFLOW_MODES } from '../state/workflow-transition.js';
 import { resolveTmuxBinaryForPlatform } from '../utils/platform-command.js';
 import { resolveOmxCliEntryPath } from '../utils/paths.js';
@@ -147,7 +146,9 @@ function resolveAvailablePaneHeight(
   const attempts = target ? [['display-message', '-p', '-t', target, format], ['display-message', '-p', format]] : [['display-message', '-p', format]];
   for (const args of attempts) {
     try {
-      const parsed = Number.parseInt(execTmux(args).trim(), 10);
+      const raw = execTmux(args).trim();
+      if (!/^\d+$/.test(raw)) continue;
+      const parsed = Number.parseInt(raw, 10);
       if (Number.isFinite(parsed) && parsed > 0) return parsed;
     } catch {
       // Try the next source, then fall back.
@@ -255,21 +256,13 @@ function readPersistedQuestionReturnTarget(
   sessionId?: string,
 ): string | undefined {
   const candidatePaths: string[] = [];
-  if (sessionId) {
+  if (sessionId && /^[A-Za-z0-9_-]{1,64}$/.test(sessionId)) {
     for (const mode of TRACKED_WORKFLOW_MODES) {
-      try {
-        candidatePaths.push(getStatePath(mode, cwd, sessionId));
-      } catch {
-        // Ignore invalid/absent state scopes and keep best-effort fallbacks.
-      }
+      candidatePaths.push(join(cwd, '.omx', 'state', 'sessions', sessionId, `${mode}-state.json`));
     }
   }
   for (const mode of TRACKED_WORKFLOW_MODES) {
-    try {
-      candidatePaths.push(getStatePath(mode, cwd));
-    } catch {
-      // Ignore invalid/absent state scopes and keep best-effort fallbacks.
-    }
+    candidatePaths.push(join(cwd, '.omx', 'state', `${mode}-state.json`));
   }
 
   const seen = new Set<string>();
@@ -317,6 +310,46 @@ function isCurrentTmuxSessionAttached(
   } catch {
     return false;
   }
+}
+
+function probeBridgePaneFailureReason(
+  paneId: string,
+  execTmux: ExecTmuxSync,
+): string | null {
+  if (!isPaneId(paneId)) return `pane target ${paneId || '<empty>'} is not a tmux pane id`;
+  try {
+    const raw = execTmux([
+      'display-message',
+      '-p',
+      '-t',
+      paneId,
+      '#{session_attached}\t#{pane_dead}\t#{pane_id}',
+    ]);
+    const line = raw
+      .split('\n')
+      .map((part) => part.trim())
+      .find(Boolean) ?? '';
+    const [attached = '', paneDead = '', resolvedPaneId = ''] = line.split('\t');
+    if (resolvedPaneId !== paneId) return `pane ${paneId} could not be resolved`;
+    if (paneDead === '1') return `pane ${paneId} is dead`;
+    if (attached !== '1') return `pane ${paneId} is not in an attached tmux session`;
+    return null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `pane ${paneId} could not be inspected: ${message}`;
+  }
+}
+
+function assertBridgePaneCanRender(
+  paneId: string,
+  execTmux: ExecTmuxSync,
+): void {
+  const reason = probeBridgePaneFailureReason(paneId, execTmux);
+  if (!reason) return;
+  throw new Error(
+    `omx question cannot open a visible renderer because ${reason}. ` +
+      'Run omx question from inside tmux or provide a live, attached tmux/psmux pane target.',
+  );
 }
 
 export function isLaunchedQuestionPaneAlive(
@@ -481,11 +514,15 @@ export function launchQuestionRenderer(
   });
 
   if (strategy === 'inside-tmux') {
+    const hasTmux = Boolean(safeString(env.TMUX).trim());
     const splitTarget = returnTarget ? ['-t', returnTarget] : [];
-    const attachedCheckTarget = safeString(env.TMUX).trim()
+    if (!hasTmux && returnTarget) {
+      assertBridgePaneCanRender(returnTarget, execTmux);
+    }
+    const attachedCheckTarget = hasTmux
       ? returnTarget || safeString(env.TMUX_PANE).trim() || undefined
       : undefined;
-    if (safeString(env.TMUX).trim() && !isCurrentTmuxSessionAttached(execTmux, env, attachedCheckTarget)) {
+    if (hasTmux && !isCurrentTmuxSessionAttached(execTmux, env, attachedCheckTarget)) {
       throw new Error(
         'omx question cannot open a visible renderer because this tmux session has no attached client. Run omx question from an attached tmux pane.',
       );

@@ -42,11 +42,11 @@ describe('resolveQuestionRendererStrategy', () => {
 
   it('supports explicit host-pane bridge hints when TMUX is absent', () => {
     assert.equal(
-      resolveQuestionRendererStrategy({ OMX_QUESTION_RETURN_PANE: '%77' } as NodeJS.ProcessEnv, '/usr/bin/tmux'),
+      resolveQuestionRendererStrategy({ OMX_QUESTION_RETURN_PANE: '%77' } as NodeJS.ProcessEnv, '/usr/bin/tmux', { platform: 'linux' }),
       'inside-tmux',
     );
     assert.equal(
-      resolveQuestionRendererStrategy({ OMX_LEADER_PANE_ID: '%88' } as NodeJS.ProcessEnv, '/usr/bin/tmux'),
+      resolveQuestionRendererStrategy({ OMX_LEADER_PANE_ID: '%88' } as NodeJS.ProcessEnv, '/usr/bin/tmux', { platform: 'linux' }),
       'inside-tmux',
     );
   });
@@ -197,7 +197,7 @@ describe('launchQuestionRenderer', () => {
     assert.ok(splitCall.includes('%11'));
     assert.notEqual(splitCall[3], '12');
     assert.equal(splitCall[splitCall.length - 6], process.execPath);
-    assert.equal(splitCall[splitCall.length - 5]?.endsWith('/dist/cli/omx.js'), true);
+    assert.equal(splitCall[splitCall.length - 5]?.replace(/\\/g, '/').endsWith('/dist/cli/omx.js'), true);
     assert.deepEqual(splitCall.slice(-4), [
       'question',
       '--ui',
@@ -287,10 +287,12 @@ describe('launchQuestionRenderer', () => {
         sessionId: 's1',
         nowIso: '2026-04-19T00:00:00.000Z',
         env: { OMX_QUESTION_RETURN_PANE: '%77' } as NodeJS.ProcessEnv,
+        platform: 'linux',
       },
       {
         execTmux: (args) => {
           calls.push(args);
+          if (args[0] === 'display-message') return '1\t0\t%77\n';
           if (args[0] === 'split-window') return '%78\n';
           if (args[0] === 'list-panes') return '0\t%78\n';
           return '';
@@ -311,6 +313,33 @@ describe('launchQuestionRenderer', () => {
     assert.ok(splitCall.includes('-t'));
     assert.ok(splitCall.includes('%77'));
     assert.ok(calls.some((call) => call.join(' ') === 'list-panes -t %78 -F #{pane_dead}\t#{pane_id}'));
+  });
+
+  it('fails fast when an explicit host pane bridge is stale or unattached', () => {
+    const calls: string[][] = [];
+    assert.throws(
+      () => launchQuestionRenderer(
+        {
+          cwd: '/repo',
+          recordPath: '/repo/.omx/state/sessions/s1/questions/question-bridge.json',
+          sessionId: 's1',
+          env: { OMX_QUESTION_RETURN_PANE: '%77' } as NodeJS.ProcessEnv,
+          platform: 'linux',
+        },
+        {
+          execTmux: (args) => {
+            calls.push(args);
+            if (args[0] === 'display-message') return '0\t0\t%77\n';
+            if (args[0] === 'split-window') return '%78\n';
+            return '';
+          },
+          sleepSync: () => {},
+        },
+      ),
+      /pane %77 is not in an attached tmux session/,
+    );
+
+    assert.deepEqual(calls, [['display-message', '-p', '-t', '%77', '#{session_attached}\t#{pane_dead}\t#{pane_id}']]);
   });
 
   it('opens a detached Windows console instead of a psmux split pane when a return bridge is present', () => {
@@ -382,6 +411,7 @@ describe('launchQuestionRenderer', () => {
         {
           execTmux: (args) => {
             calls.push(args);
+            if (args[0] === 'display-message') return '1\t0\t%91\n';
             if (args[0] === 'split-window') return '%92\n';
             if (args[0] === 'list-panes') return '0\t%92\n';
             return '';
@@ -433,7 +463,7 @@ describe('launchQuestionRenderer', () => {
     const splitCall = calls.find((call) => call[0] === 'split-window');
     assert.ok(splitCall);
     assert.equal(splitCall[splitCall.length - 6], process.execPath);
-    assert.equal(splitCall[splitCall.length - 5]?.endsWith('/dist/cli/omx.js'), true);
+    assert.equal(splitCall[splitCall.length - 5]?.replace(/\\/g, '/').endsWith('/dist/cli/omx.js'), true);
     assert.deepEqual(splitCall.slice(-4), [
       'question',
       '--ui',
@@ -584,7 +614,7 @@ describe('launchQuestionRenderer', () => {
     assert.equal(splitCall.some((part) => /question --ui --state-path/.test(part)), false);
     assert.equal(splitCall.some((part) => /^'.*'$/.test(part)), false);
     assert.equal(splitCall[splitCall.length - 6], process.execPath);
-    assert.equal(splitCall[splitCall.length - 5]?.endsWith('/dist/cli/omx.js'), true);
+    assert.equal(splitCall[splitCall.length - 5]?.replace(/\\/g, '/').endsWith('/dist/cli/omx.js'), true);
     assert.deepEqual(splitCall.slice(-4), [
       'question',
       '--ui',
@@ -658,7 +688,7 @@ describe('launchQuestionRenderer', () => {
     assert.equal(calls[0]?.[0], 'new-session');
     assert.ok(calls[0]?.includes('-d'));
     assert.equal(calls[0]?.[calls[0]!.length - 6], process.execPath);
-    assert.equal(calls[0]?.[calls[0]!.length - 5]?.endsWith('/dist/cli/omx.js'), true);
+      assert.equal(calls[0]?.[calls[0]!.length - 5]?.replace(/\\/g, '/').endsWith('/dist/cli/omx.js'), true);
     assert.deepEqual(calls[0]?.slice(-4), [
       'question',
       '--ui',

@@ -70,18 +70,11 @@ export function resolveOmxEntryPath(
     env?: NodeJS.ProcessEnv;
   } = {},
 ): string | null {
-  const { cwd = process.cwd(), env = process.env } = options;
-  const hasExplicitArgv1 = Object.prototype.hasOwnProperty.call(options, "argv1");
-  const argv1 = hasExplicitArgv1 ? options.argv1 : process.argv[1];
-  const rawPath = typeof argv1 === "string" ? argv1.trim() : "";
-  if (hasExplicitArgv1 && rawPath !== "") {
-    const startupCwd = String(env[OMX_STARTUP_CWD_ENV] ?? "").trim() || cwd;
-    return resolveLauncherPath(rawPath, startupCwd);
-  }
-
+  const { argv1 = process.argv[1], cwd = process.cwd(), env = process.env } = options;
   const fromEnv = String(env[OMX_ENTRY_PATH_ENV] ?? "").trim();
   if (fromEnv !== "") return fromEnv;
 
+  const rawPath = typeof argv1 === "string" ? argv1.trim() : "";
   if (rawPath === "") return null;
 
   const startupCwd = String(env[OMX_STARTUP_CWD_ENV] ?? "").trim() || cwd;
@@ -102,6 +95,17 @@ export function resolveOmxCliEntryPath(
     packageRootDir?: string;
   } = {},
 ): string | null {
+  const rawArgv1 = typeof (options.argv1 ?? process.argv[1]) === "string"
+    ? String(options.argv1 ?? process.argv[1]).trim()
+    : "";
+  if (rawArgv1 !== "") {
+    const startupCwd = String(options.env?.[OMX_STARTUP_CWD_ENV] ?? process.env[OMX_STARTUP_CWD_ENV] ?? "").trim()
+      || options.cwd
+      || process.cwd();
+    const argvEntry = resolveLauncherPath(rawArgv1, startupCwd);
+    if (isOmxCliEntryPath(argvEntry)) return argvEntry;
+  }
+
   const entry = resolveOmxEntryPath(options);
   if (isOmxCliEntryPath(entry)) return entry;
 
@@ -123,16 +127,11 @@ export function rememberOmxLaunchContext(
   }
   if (String(env[OMX_ENTRY_PATH_ENV] ?? "").trim() !== "") return;
 
-  const resolved = Object.prototype.hasOwnProperty.call(options, "argv1")
-    ? resolveOmxEntryPath({
-      argv1: options.argv1,
-      cwd,
-      env,
-    })
-    : resolveOmxEntryPath({
-      cwd,
-      env,
-    });
+  const resolved = resolveOmxEntryPath({
+    argv1: options.argv1,
+    cwd,
+    env,
+  });
   if (resolved) {
     env[OMX_ENTRY_PATH_ENV] = resolved;
   }
@@ -143,7 +142,7 @@ export function codexConfigPath(): string {
   return join(codexHome(), "config.toml");
 }
 
-/** Codex prompts directory (~/.codex/prompts/) */
+/** Legacy Codex prompts directory (~/.codex/prompts/) kept for migration cleanup */
 export function codexPromptsDir(): string {
   return join(codexHome(), "prompts");
 }
@@ -340,7 +339,7 @@ export function omxUserInstallStampPath(codexHomeDir?: string): string {
   return join(codexHomeDir || codexHome(), ".omx", "install-state.json");
 }
 
-/** Get the package root directory (where agents/, skills/, prompts/ live) */
+/** Get the package root directory (where agents/ and skills/ live) */
 export function packageRoot(): string {
   try {
     const __filename = fileURLToPath(import.meta.url);

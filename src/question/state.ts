@@ -17,6 +17,16 @@ import type {
 const QUESTION_NAMESPACE = 'questions';
 const DEFAULT_POLL_INTERVAL_MS = 100;
 
+export class QuestionWaitTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Timed out waiting for question answer after ${timeoutMs}ms`);
+    this.name = 'QuestionWaitTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 function buildQuestionId(now = new Date()): string {
   return `question-${now.toISOString().replace(/[:.]/g, '-')}-$${Math.random().toString(16).slice(2, 10)}`.replace('$', '');
 }
@@ -160,7 +170,7 @@ export async function waitForQuestionTerminalState(
       );
     }
     if (typeof timeoutMs === 'number' && timeoutMs >= 0 && Date.now() - startedAt > timeoutMs) {
-      throw new Error(`Timed out waiting for question answer after ${timeoutMs}ms`);
+      throw new QuestionWaitTimeoutError(timeoutMs);
     }
     await sleep(pollIntervalMs);
   }
