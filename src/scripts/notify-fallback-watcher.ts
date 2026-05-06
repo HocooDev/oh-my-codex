@@ -158,7 +158,10 @@ const maxLogBytes = Math.max(
 );
 const ralphSteerTimestampPath = join(stateDir, 'ralph-last-steer-at');
 const ralphSteerLockPath = join(stateDir, 'ralph-continue-steer.lock');
-const watcherOwnerToken = `${process.pid}-${startedAt}-${Math.random().toString(36).slice(2, 10)}`;
+const watcherOwnerToken =
+  safeString(process.env.OMX_NOTIFY_FALLBACK_OWNER_TOKEN) ||
+  `${process.pid}-${startedAt}-${Math.random().toString(36).slice(2, 10)}`;
+const watcherSessionId = safeString(process.env.OMX_SESSION_ID) || undefined;
 const RALPH_CONTINUE_TEXT = 'Ralph loop active continue';
 const RALPH_CONTINUE_CADENCE_MS = 60_000;
 const RALPH_STEER_LOCK_STALE_MS = 30_000;
@@ -197,6 +200,7 @@ interface RalphContinueSteerState {
 
 interface PidFileRecord {
   pid: number;
+  session_id?: string;
   parent_pid?: number;
   cwd?: string;
   started_at?: string;
@@ -922,6 +926,7 @@ async function readPidFileRecord(path: string): Promise<PidFileRecord | null> {
     if (pid === null) return null;
     return {
       pid,
+      session_id: safeString(parsed.session_id) || undefined,
       parent_pid: parsePositivePid(parsed.parent_pid) ?? undefined,
       cwd: safeString(parsed.cwd) || undefined,
       started_at: safeString(parsed.started_at) || undefined,
@@ -1039,6 +1044,7 @@ async function resolveAuthorityPrimaryWatcherHealth(now = Date.now()): Promise<A
 async function writePidFileRecord(): Promise<void> {
   const nextRecord: PidFileRecord = {
     pid: process.pid,
+    session_id: watcherSessionId,
     parent_pid: parentPid,
     cwd,
     started_at: new Date(startedAt).toISOString(),
@@ -1309,6 +1315,7 @@ async function writeState(extra: Record<string, unknown> = {}): Promise<void> {
     pid: process.pid,
     parent_pid: parentPid,
     started_at: new Date(startedAt).toISOString(),
+    owner_token: watcherOwnerToken,
     cwd,
     notify_script: notifyScript,
     authority_only: authorityOnly,

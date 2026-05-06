@@ -10,7 +10,7 @@ describe('config generator', () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
     try {
       const configPath = join(wd, 'config.toml');
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       // Top-level keys must appear before the first [table] header
@@ -18,38 +18,24 @@ describe('config generator', () => {
       const reasoningIdx = toml.indexOf('model_reasoning_effort =');
       const devInstrIdx = toml.indexOf('developer_instructions =');
       const modelIdx = toml.indexOf('model = "gpt-5.5"');
-      const seededStartIdx = toml.indexOf(
-        '# oh-my-codex seeded behavioral defaults (uninstall removes unchanged defaults)',
-      );
       const contextIdx = toml.indexOf('model_context_window = 250000');
       const compactIdx = toml.indexOf('model_auto_compact_token_limit = 200000');
-      const seededEndIdx = toml.indexOf('# End oh-my-codex seeded behavioral defaults');
       const featuresIdx = toml.indexOf('[features]');
 
       assert.ok(notifyIdx >= 0, 'notify not found');
       assert.ok(reasoningIdx >= 0, 'model_reasoning_effort not found');
       assert.ok(devInstrIdx >= 0, 'developer_instructions not found');
       assert.ok(modelIdx >= 0, 'model not found');
-      assert.ok(seededStartIdx >= 0, 'seeded defaults start marker not found');
       assert.ok(contextIdx >= 0, 'model_context_window not found');
       assert.ok(compactIdx >= 0, 'model_auto_compact_token_limit not found');
-      assert.ok(seededEndIdx >= 0, 'seeded defaults end marker not found');
       assert.ok(featuresIdx >= 0, '[features] not found');
 
       assert.ok(notifyIdx < featuresIdx, 'notify must come before [features]');
       assert.ok(reasoningIdx < featuresIdx, 'model_reasoning_effort must come before [features]');
       assert.ok(devInstrIdx < featuresIdx, 'developer_instructions must come before [features]');
       assert.ok(modelIdx < featuresIdx, 'model must come before [features]');
-      assert.ok(
-        seededStartIdx < featuresIdx,
-        'seeded defaults start marker must come before [features]',
-      );
       assert.ok(contextIdx < featuresIdx, 'model_context_window must come before [features]');
       assert.ok(compactIdx < featuresIdx, 'model_auto_compact_token_limit must come before [features]');
-      assert.ok(
-        seededEndIdx < featuresIdx,
-        'seeded defaults end marker must come before [features]',
-      );
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -59,7 +45,7 @@ describe('config generator', () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
     try {
       const configPath = join(wd, 'config.toml');
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       assert.match(toml, /^notify = \["node", ".*notify-hook\.js"\]$/m);
@@ -73,17 +59,12 @@ describe('config generator', () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
     try {
       const configPath = join(wd, 'config.toml');
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       assert.match(toml, /^model = "gpt-5\.5"$/m);
-      assert.match(
-        toml,
-        /^# oh-my-codex seeded behavioral defaults \(uninstall removes unchanged defaults\)$/m,
-      );
       assert.match(toml, /^model_context_window = 250000$/m);
       assert.match(toml, /^model_auto_compact_token_limit = 200000$/m);
-      assert.match(toml, /^# End oh-my-codex seeded behavioral defaults$/m);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -93,17 +74,12 @@ describe('config generator', () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
     try {
       const configPath = join(wd, 'config.toml');
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       assert.match(toml, /^model = "gpt-5\.5"$/m);
-      assert.match(
-        toml,
-        /^# oh-my-codex seeded behavioral defaults \(uninstall removes unchanged defaults\)$/m,
-      );
       assert.match(toml, /^model_context_window = 250000$/m);
       assert.match(toml, /^model_auto_compact_token_limit = 200000$/m);
-      assert.match(toml, /^# End oh-my-codex seeded behavioral defaults$/m);
 
       const modelIdx = toml.indexOf('model = "gpt-5.5"');
       const featuresIdx = toml.indexOf('[features]');
@@ -117,15 +93,15 @@ describe('config generator', () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
     try {
       const configPath = join(wd, 'config.toml');
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       assert.match(toml, /^model_reasoning_effort = "medium"$/m);
       assert.match(toml, /^developer_instructions = "You have oh-my-codex installed/m);
-      assert.match(toml, /AGENTS\.md is the orchestration brain and main control surface/);
-      assert.match(toml, /Follow AGENTS\.md for skill\/keyword routing, \$name workflow invocation, and role-specialized subagents/);
-      assert.match(toml, /Native subagents live in \.codex\/agents/);
-      assert.match(toml, /Treat installed prompts as narrower execution surfaces under AGENTS\.md authority/);
+      assert.match(toml, /AGENTS\.md is your orchestration brain and the main orchestration surface/);
+      assert.match(toml, /Use skill\/keyword routing like \$name plus spawned role-specialized subagents for specialized work/);
+      assert.match(toml, /Codex native subagents are available via \.codex\/agents/);
+      assert.match(toml, /Treat installed role skills as narrower internal execution surfaces under AGENTS\.md authority/);
       assert.match(toml, new RegExp(`^developer_instructions = "${OMX_DEVELOPER_INSTRUCTIONS.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"$`, 'm'));
     } finally {
       await rm(wd, { recursive: true, force: true });
@@ -138,7 +114,7 @@ describe('config generator', () => {
     try {
       await mkdir(wd, { recursive: true });
       const configPath = join(wd, 'config.toml');
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       const m = toml.match(/^notify = \["node", "(.*)"\]$/m);
@@ -154,7 +130,7 @@ describe('config generator', () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
     try {
       const configPath = join(wd, 'config.toml');
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
 
       // Simulate user adding content
       let toml = await readFile(configPath, 'utf-8');
@@ -162,7 +138,7 @@ describe('config generator', () => {
       await writeFile(configPath, toml);
 
       // Re-run setup
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const rerun = await readFile(configPath, 'utf-8');
 
       // OMX block appears exactly once
@@ -193,7 +169,7 @@ describe('config generator', () => {
     }
   });
 
-  it('seeds only the missing gpt-5.5 context key while preserving an existing partner value', async () => {
+  it('preserves partial user context config without backfilling the missing partner key', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
     try {
       const configPath = join(wd, 'config.toml');
@@ -207,7 +183,7 @@ describe('config generator', () => {
 
       assert.match(toml, /^model = "gpt-5\.5"$/m);
       assert.match(toml, /^model_context_window = 640000$/m);
-      assert.match(toml, /^model_auto_compact_token_limit = 200000$/m);
+      assert.doesNotMatch(toml, /^model_auto_compact_token_limit = 200000$/m);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -219,7 +195,7 @@ describe('config generator', () => {
       const configPath = join(wd, 'config.toml');
       await writeFile(configPath, 'model = \"o3\"\n');
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       assert.match(toml, /^model = "o3"$/m);
@@ -244,7 +220,7 @@ describe('config generator', () => {
       ].join('\n');
       await writeFile(configPath, existing);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       // User's existing top-level keys preserved
@@ -270,7 +246,7 @@ describe('config generator', () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
     try {
       const configPath = join(wd, 'config.toml');
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       assert.match(toml, /^\[agents\]$/m);
@@ -296,7 +272,7 @@ describe('config generator', () => {
       ].join('\n');
       await writeFile(configPath, existing);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       // collab must be gone
@@ -335,7 +311,7 @@ describe('config generator', () => {
       ].join('\n');
       await writeFile(configPath, legacy);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       assert.equal(
@@ -369,7 +345,7 @@ describe('config generator', () => {
       ].join('\n');
       await writeFile(configPath, original);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const merged = await readFile(configPath, 'utf-8');
 
       assert.equal((merged.match(/^\[features\]$/gm) ?? []).length, 1);
@@ -390,25 +366,67 @@ describe('config generator', () => {
     try {
       const configPath = join(wd, 'config.toml');
       const windowsPkgRoot = 'C:\\Users\\alice\\oh-my-codex';
-      await mergeConfig(configPath, windowsPkgRoot);
+      await mergeConfig(configPath, windowsPkgRoot, { targetPlatform: "linux" });
       const toml = await readFile(configPath, 'utf-8');
 
       assert.match(
         toml,
-        /args = \["C:\\\\Users\\\\alice\\\\oh-my-codex\/dist\/mcp\/state-server\.js"\]/,
+        /args = \["C:\\\\Users\\\\alice\\\\oh-my-codex\\\\dist\\\\mcp\\\\state-server\.js"\]/,
       );
       assert.match(
         toml,
-        /args = \["C:\\\\Users\\\\alice\\\\oh-my-codex\/dist\/mcp\/memory-server\.js"\]/,
+        /args = \["C:\\\\Users\\\\alice\\\\oh-my-codex\\\\dist\\\\mcp\\\\memory-server\.js"\]/,
       );
       assert.match(
         toml,
-        /args = \["C:\\\\Users\\\\alice\\\\oh-my-codex\/dist\/mcp\/code-intel-server\.js"\]/,
+        /args = \["C:\\\\Users\\\\alice\\\\oh-my-codex\\\\dist\\\\mcp\\\\code-intel-server\.js"\]/,
       );
       assert.match(
         toml,
-        /args = \["C:\\\\Users\\\\alice\\\\oh-my-codex\/dist\/mcp\/trace-server\.js"\]/,
+        /args = \["C:\\\\Users\\\\alice\\\\oh-my-codex\\\\dist\\\\mcp\\\\trace-server\.js"\]/,
       );
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('omits OMX-managed notify on win32 target configs', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
+    try {
+      const configPath = join(wd, 'config.toml');
+      await mergeConfig(configPath, wd, { targetPlatform: 'win32' });
+      const toml = await readFile(configPath, 'utf-8');
+
+      assert.doesNotMatch(toml, /^notify = \["node", ".*notify-hook\.js"\]$/m);
+      assert.match(toml, /^model_reasoning_effort = "medium"$/m);
+      assert.match(toml, /^model_context_window = 250000$/m);
+      assert.match(toml, /^model_auto_compact_token_limit = 200000$/m);
+      assert.match(toml, /^developer_instructions = "You have oh-my-codex installed/m);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves user-owned notify commands on win32 target configs', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-config-gen-'));
+    try {
+      const configPath = join(wd, 'config.toml');
+      await writeFile(
+        configPath,
+        [
+          'notify = ["node", "C:/custom/user-notify.js"]',
+          '',
+          '[features]',
+          'web_search = true',
+          '',
+        ].join('\n'),
+      );
+
+      await mergeConfig(configPath, wd, { targetPlatform: 'win32' });
+      const toml = await readFile(configPath, 'utf-8');
+
+      assert.match(toml, /^notify = \["node", "C:\/custom\/user-notify\.js"\]$/m);
+      assert.doesNotMatch(toml, /notify-hook\.js/);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }

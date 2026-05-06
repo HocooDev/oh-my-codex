@@ -25,6 +25,7 @@ interface MergeOptions {
   modelOverride?: string;
   sharedMcpServers?: UnifiedMcpRegistryServer[];
   sharedMcpRegistrySource?: string;
+  targetPlatform?: NodeJS.Platform;
   verbose?: boolean;
   statusLinePreset?: HudPreset;
   forceStatusLinePreset?: boolean;
@@ -40,7 +41,6 @@ function escapeTomlString(value: string): string {
 
 /** Keys we own at the TOML root level. Used for upsert + strip. */
 const OMX_TOP_LEVEL_KEYS = [
-  "notify",
   "model_reasoning_effort",
   "developer_instructions",
 ] as const;
@@ -70,9 +70,13 @@ const OMX_SEEDED_BEHAVIORAL_DEFAULTS_START_MARKER =
   "# oh-my-codex seeded behavioral defaults (uninstall removes unchanged defaults)";
 const OMX_SEEDED_BEHAVIORAL_DEFAULTS_END_MARKER =
   "# End oh-my-codex seeded behavioral defaults";
+const OMX_TOP_LEVEL_MARKER =
+  "# oh-my-codex top-level settings (must be before any [table])";
+const OMX_MANAGED_DEVELOPER_INSTRUCTIONS_SNIPPET =
+  "You have oh-my-codex installed.";
 
 export const OMX_DEVELOPER_INSTRUCTIONS =
-  "You have oh-my-codex installed. AGENTS.md is the orchestration brain and main control surface. Follow AGENTS.md for skill/keyword routing, $name workflow invocation, and role-specialized subagents. Use outcome-first, concise progress updates: state the target result, constraints, validation evidence, and stop condition before adding process detail. Native subagents live in .codex/agents and may handle independent parallel subtasks within one Codex session or team pane. Skills load from .codex/skills, not native-agent TOMLs. Treat installed prompts as narrower execution surfaces under AGENTS.md authority.";
+  "You have oh-my-codex installed. AGENTS.md is your orchestration brain and the main orchestration surface. Use skill/keyword routing like $name plus spawned role-specialized subagents for specialized work. Use outcome-first, concise progress updates: state the target result, constraints, validation evidence, and stop condition before adding process detail. Codex native subagents are available via .codex/agents and may be used for independent parallel subtasks within a single session or team pane. Skills are loaded from installed SKILL.md files under .codex/skills, not from native agent TOMLs. Use workflow skills via $name when explicitly invoked or clearly routed by AGENTS.md. Treat installed role skills as narrower internal execution surfaces under AGENTS.md authority, even when user-facing docs prefer $name keywords. Before any final response for a non-trivial task, automatically run $task-closeout-review (or an equivalent built-in closeout checklist when the skill is unavailable) and append the visible ## 任务后复核 block in that same reply.";
 export const OMX_PLUGIN_DEVELOPER_INSTRUCTIONS =
   "You have oh-my-codex installed through Codex plugin mode. AGENTS.md is the orchestration brain and main control surface. Follow AGENTS.md for skill/keyword routing and $name workflow invocation. Registered Codex plugin marketplace surfaces supply OMX workflows, prompts, and native-agent roles when the plugin is installed. User-installed skills may still live under ~/.codex/skills. Setup-owned prompt files and native-agent TOML defaults are intentionally omitted unless explicitly installed. Use outcome-first, concise progress updates: state the target result, constraints, validation evidence, and stop condition before adding process detail.";
 const SHARED_MCP_REGISTRY_MARKER = "oh-my-codex (OMX) Shared MCP Registry Sync";
@@ -263,17 +267,22 @@ function getOmxTopLevelLines(
   pkgRoot: string,
   existingConfig = "",
   modelOverride?: string,
+  targetPlatform: NodeJS.Platform = process.platform,
 ): string[] {
   const notifyHookPath = join(pkgRoot, "dist", "scripts", "notify-hook.js");
   const escapedPath = escapeTomlString(notifyHookPath);
   const rootValues = parseRootKeyValues(existingConfig);
 
   const lines = [
-    "# oh-my-codex top-level settings (must be before any [table])",
-    `notify = ["node", "${escapedPath}"]`,
+    OMX_TOP_LEVEL_MARKER,
     'model_reasoning_effort = "medium"',
     `developer_instructions = "${escapeTomlString(OMX_DEVELOPER_INSTRUCTIONS)}"`,
   ];
+  const existingNotify = rootValues.get("notify");
+  const hasUserOwnedNotify = Boolean(existingNotify) && !isOmxManagedNotifyRouting(existingConfig);
+  if (targetPlatform !== "win32" && !hasUserOwnedNotify) {
+    lines.splice(1, 0, `notify = ["node", "${escapedPath}"]`);
+  }
 
   const existingModel = rootValues.get("model");
   const existingContextWindow = rootValues.get("model_context_window");
@@ -285,18 +294,18 @@ function getOmxTopLevelLines(
     lines.push(`model = "${selectedModel}"`);
   }
 
-  if (selectedModel === DEFAULT_SETUP_MODEL) {
+  if (
+    selectedModel === DEFAULT_SETUP_MODEL &&
+    !existingContextWindow &&
+    !existingAutoCompact
+  ) {
     const seededBehavioralDefaults: string[] = [];
-    if (!existingContextWindow) {
-      seededBehavioralDefaults.push(
-        `model_context_window = ${DEFAULT_SETUP_MODEL_CONTEXT_WINDOW}`,
-      );
-    }
-    if (!existingAutoCompact) {
-      seededBehavioralDefaults.push(
-        `model_auto_compact_token_limit = ${DEFAULT_SETUP_MODEL_AUTO_COMPACT_TOKEN_LIMIT}`,
-      );
-    }
+    seededBehavioralDefaults.push(
+      `model_context_window = ${DEFAULT_SETUP_MODEL_CONTEXT_WINDOW}`,
+    );
+    seededBehavioralDefaults.push(
+      `model_auto_compact_token_limit = ${DEFAULT_SETUP_MODEL_AUTO_COMPACT_TOKEN_LIMIT}`,
+    );
     if (seededBehavioralDefaults.length > 0) {
       lines.push(OMX_SEEDED_BEHAVIORAL_DEFAULTS_START_MARKER);
       lines.push(...seededBehavioralDefaults);
@@ -379,7 +388,7 @@ function stripRootLevelKeys(config: string, keys: readonly string[]): string {
       ) &&
       entry.lines.length === 1 &&
       entry.lines[0].trim() ===
-        "# oh-my-codex top-level settings (must be before any [table])"
+        OMX_TOP_LEVEL_MARKER
     ) {
       return false;
     }
@@ -399,8 +408,60 @@ function stripRootLevelKeys(config: string, keys: readonly string[]): string {
   return result.join("\n");
 }
 
+function getManagedNotifyScriptPath(rootValues: Map<string, string>): string | null {
+  const raw = rootValues.get("notify");
+  if (!raw) return null;
+  const match = raw.match(/^\[\s*"node"\s*,\s*"([^"]+)"\s*\]$/);
+  if (!match) return null;
+  return match[1].replace(/\\/g, "/").replace(/\/+/g, "/");
+}
+
+export function isOmxManagedNotifyRouting(config: string): boolean {
+  const rootValues = parseRootKeyValues(config);
+  let scriptPath = getManagedNotifyScriptPath(rootValues);
+  if (!scriptPath) {
+    try {
+      const parsed = TOML.parse(config) as { notify?: unknown };
+      const notify = parsed.notify;
+      if (
+        Array.isArray(notify) &&
+        notify[0] === "node" &&
+        typeof notify[1] === "string"
+      ) {
+        scriptPath = notify[1].replace(/\\/g, "/").replace(/\/+/g, "/");
+      }
+    } catch {
+      // Fall back to the root-value parser result.
+    }
+  }
+  if (!scriptPath?.endsWith("/notify-hook.js")) return false;
+
+  const developerInstructions = unwrapTomlString(
+    rootValues.get("developer_instructions"),
+  );
+  return (
+    config.includes(OMX_TOP_LEVEL_MARKER) ||
+    developerInstructions?.includes(OMX_MANAGED_DEVELOPER_INSTRUCTIONS_SNIPPET) ===
+      true
+  );
+}
+
+export function hasExplicitNotifyFallbackOptOut(config: string): boolean {
+  try {
+    const parsed = TOML.parse(config) as { env?: Record<string, unknown> };
+    return String(parsed?.env?.OMX_NOTIFY_FALLBACK ?? "").trim() === "0";
+  } catch {
+    return false;
+  }
+}
+
 function stripOrphanedManagedNotify(config: string): string {
+  if (!isOmxManagedNotifyRouting(config)) return config;
   return config
+    .replace(
+      /^\s*notify\s*=\s*\[\s*\n\s*"node"\s*,\s*\n\s*".*notify-hook\.js"\s*,?\s*\n\s*\]\s*(\n)?/gm,
+      "",
+    )
     .replace(
       /^\s*notify\s*=\s*\["node",\s*".*notify-hook\.js"\]\s*$(\n)?/gm,
       "",
@@ -1471,8 +1532,8 @@ export function buildMergedConfig(
     existing = stripped.cleaned;
   }
 
-  existing = stripOmxTopLevelKeys(existing);
   existing = stripOrphanedManagedNotify(existing);
+  existing = stripOmxTopLevelKeys(existing);
   if (options.modelOverride) {
     existing = stripRootLevelKeys(existing, ["model"]);
   }
@@ -1491,6 +1552,7 @@ export function buildMergedConfig(
     pkgRoot,
     existing,
     options.modelOverride,
+    options.targetPlatform,
   );
   const tablesBlock = getOmxTablesBlock(
     pkgRoot,
@@ -1536,7 +1598,15 @@ export async function repairConfigIfNeeded(
   const hasLegacyTeamRunTable = hasLegacyOmxTeamRunTable(content);
   const hasLauncherTimeoutGap =
     findLauncherTimeoutRepairTargets(content).length > 0;
-  if (tuiCount <= 1 && !hasLegacyTeamRunTable && !hasLauncherTimeoutGap)
+  const targetPlatform = options.targetPlatform ?? process.platform;
+  const hasStaleWindowsManagedNotify =
+    targetPlatform === "win32" && isOmxManagedNotifyRouting(content);
+  if (
+    tuiCount <= 1 &&
+    !hasLegacyTeamRunTable &&
+    !hasLauncherTimeoutGap &&
+    !hasStaleWindowsManagedNotify
+  )
     return false;
 
   // Managed config compatibility issue detected — run full merge to repair

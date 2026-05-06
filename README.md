@@ -182,8 +182,8 @@ Most users should think of OMX as **better task routing + better workflow + bett
 
 1. Install or update OMX with `npm install -g @openai/codex oh-my-codex`
 2. After install or real OMX version bumps, run `omx setup` yourself when you're ready, or use `omx update` when you also want npm to check for and install the latest build before refreshing setup
-3. Run `omx doctor`
-4. Run a real execution smoke test: `codex login status` and `omx exec --skip-git-repo-check -C . "Reply with exactly OMX-EXEC-OK"`
+3. Run `omx ready`
+4. If you do not want a model call during readiness, run `omx ready --skip-exec`
 5. Launch with `omx --madmax --high`
 6. Use `$deep-interview "..."` when the request or boundaries are still unclear
 7. Use `$ralplan "..."` to approve the plan and review tradeoffs

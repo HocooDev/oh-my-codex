@@ -5,6 +5,7 @@ import { readSessionState, isSessionStale } from '../../hooks/session.js';
 import { runProcess } from './process-runner.js';
 import { safeString } from './utils.js';
 import { sameFilePath } from '../../utils/paths.js';
+import { spawnPlatformCommandSync } from '../../utils/platform-command.js';
 
 const OMX_INSTANCE_OPTION = '@omx_instance_id';
 const OMX_PANE_INSTANCE_OPTION = '@omx_pane_instance_id';
@@ -71,11 +72,17 @@ function readAuthoritativeTmuxSessionName(sessionState: { tmux_session_name?: un
 function readCurrentTmuxSessionName(): string {
   if (!process.env.TMUX) return '';
   try {
-    return execFileSync('tmux', ['display-message', '-p', '#S'], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 2000,
-    }).trim();
+    const { result } = spawnPlatformCommandSync(
+      'tmux',
+      ['display-message', '-p', '#S'],
+      {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000,
+      },
+    );
+    if (result.status !== 0) return '';
+    return safeString(result.stdout).trim();
   } catch {
     return '';
   }

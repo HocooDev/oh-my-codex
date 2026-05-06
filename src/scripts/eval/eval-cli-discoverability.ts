@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { platform } from 'node:os';
 
 const checks: [string, string[]][] = [
   ['node', ['--test', 'dist/cli/__tests__/index.test.js']],
@@ -11,6 +12,7 @@ const checks: [string, string[]][] = [
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, {
     encoding: 'utf-8',
+    shell: platform() === 'win32' && command === 'npm',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return {

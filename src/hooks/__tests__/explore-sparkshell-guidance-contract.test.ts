@@ -28,13 +28,13 @@ describe('explore + sparkshell guidance contract', () => {
   });
 
   it('keeps explore surfaces explicit about richer-path fallback', () => {
-    expectPatterns('prompts/explore.md', [
+    expectPatterns('skills/agent-explore/SKILL.md', [
       /USE_OMX_EXPLORE_CMD/i,
       /preferred low-cost path/i,
       /continue on this richer normal path/i,
     ]);
 
-    expectPatterns('prompts/explore-harness.md', [
+    expectPatterns('skills/agent-explore-harness/SKILL.md', [
       /simple read-only repository lookup tasks/i,
       /Prefer `omx explore --prompt/i,
       /fall back to the richer normal path/i,
@@ -43,9 +43,9 @@ describe('explore + sparkshell guidance contract', () => {
 
   it('keeps execution and planning surfaces conditional on explore routing', () => {
     for (const surface of [
-      'prompts/planner.md',
-      'prompts/executor.md',
-      'prompts/sisyphus-lite.md',
+      'skills/agent-planner/SKILL.md',
+      'skills/agent-executor/SKILL.md',
+      'skills/agent-sisyphus-lite/SKILL.md',
       'skills/deep-interview/SKILL.md',
       'skills/plan/SKILL.md',
       'skills/ralplan/SKILL.md',
@@ -61,7 +61,7 @@ describe('explore + sparkshell guidance contract', () => {
   });
 
   it('keeps sparkshell guidance explicit opt-in and preserves raw qa or tmux evidence', () => {
-    expectPatterns('prompts/qa-tester.md', [
+    expectPatterns('skills/agent-qa-tester/SKILL.md', [
       /optional operator aid/i,
       /does not replace raw `tmux capture-pane` evidence/i,
       /explicit opt-?in/i,

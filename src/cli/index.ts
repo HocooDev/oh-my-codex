@@ -31,6 +31,7 @@ import {
 } from "./cleanup.js";
 import { exploreCommand } from "./explore.js";
 import { sparkshellCommand } from "./sparkshell.js";
+import { readyCommand } from "./ready.js";
 import { agentsInitCommand } from "./agents-init.js";
 import { agentsCommand } from "./agents.js";
 import { sessionCommand } from "./session-search.js";
@@ -163,7 +164,8 @@ export const HELP = `
 oh-my-codex (omx) - Multi-agent orchestration for Codex CLI
 
 Usage:
-  omx           Launch Codex CLI (detached tmux by default on supported interactive terminals)
+  omx           Launch Codex CLI (detached tmux by default on supported interactive terminals; HUD auto-attaches only when already inside tmux)
+  omx ready     Check install, Codex auth, real exec smoke, and platform runtime readiness
   omx exec      Run codex exec non-interactively with OMX AGENTS/overlay injection
   omx exec inject <session-id> --prompt <text>
                 Queue audited follow-up instructions for a running non-interactive exec job
@@ -312,6 +314,7 @@ const TMUX_EXTENDED_KEYS_LOCK_STALE_MS = 30_000;
 type CliCommand =
   | "launch"
   | "exec"
+  | "ready"
   | "setup"
   | "update"
   | "list"
@@ -354,6 +357,7 @@ const NESTED_HELP_COMMANDS = new Set<CliCommand>([
   "agents-init",
   "deepinit",
   "exec",
+  "ready",
   "hooks",
   "list",
   "hud",
@@ -1034,6 +1038,7 @@ export async function main(args: string[]): Promise<void> {
   const knownCommands = new Set([
     "launch",
     "exec",
+    "ready",
     "setup",
     "update",
     "list",
@@ -1160,6 +1165,9 @@ export async function main(args: string[]): Promise<void> {
         } else {
           await execWithOverlay(launchArgs);
         }
+        break;
+      case "ready":
+        await readyCommand(args.slice(1));
         break;
       case "sparkshell":
         await sparkshellCommand(args.slice(1));
@@ -3813,6 +3821,10 @@ function parseWatcherPidFile(content: string): number | null {
 interface WatcherPidRecord {
   pid: number;
   startedAt: string | null;
+  cwd?: string;
+  parent_pid?: number;
+  session_id?: string;
+  owner_token?: string;
 }
 
 function parseWatcherPidRecord(content: string): WatcherPidRecord | null {
@@ -3821,14 +3833,28 @@ function parseWatcherPidRecord(content: string): WatcherPidRecord | null {
   try {
     const parsed = JSON.parse(trimmed) as unknown;
     if (typeof parsed === "object" && parsed !== null) {
-      const { pid, started_at: startedAtRaw } = parsed as {
+      const parsedRecord = parsed as {
         pid?: unknown;
         started_at?: unknown;
+        cwd?: unknown;
+        parent_pid?: unknown;
+        session_id?: unknown;
+        owner_token?: unknown;
       };
+      const { pid, started_at: startedAtRaw } = parsedRecord;
       if (typeof pid === "number" && Number.isFinite(pid) && pid > 0) {
         return {
           pid,
           startedAt: typeof startedAtRaw === "string" ? startedAtRaw : null,
+          cwd: typeof parsedRecord.cwd === "string" ? parsedRecord.cwd : undefined,
+          parent_pid:
+            typeof parsedRecord.parent_pid === "number" &&
+            Number.isFinite(parsedRecord.parent_pid) &&
+            parsedRecord.parent_pid > 0
+              ? parsedRecord.parent_pid
+              : undefined,
+          session_id: typeof parsedRecord.session_id === "string" ? parsedRecord.session_id : undefined,
+          owner_token: typeof parsedRecord.owner_token === "string" ? parsedRecord.owner_token : undefined,
         };
       }
     }
@@ -3861,6 +3887,15 @@ function isLikelyOmxWatcherProcess(
   }
 }
 
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function reapStaleNotifyFallbackWatcher(
   pidPath: string,
   deps: {
@@ -3871,9 +3906,10 @@ export async function reapStaleNotifyFallbackWatcher(
     warn?: (message?: unknown, ...optionalParams: unknown[]) => void;
     isWatcherProcess?: (pid: number) => boolean;
   } = {},
-): Promise<void> {
+  owner?: { cwd: string; ownerPid: number; sessionId?: string },
+): Promise<boolean> {
   const exists = deps.exists ?? existsSync;
-  if (!exists(pidPath)) return;
+  if (!exists(pidPath)) return false;
 
   const { readFile } = await import("fs/promises");
   const readFileImpl = deps.readFile ?? readFile;
@@ -3884,9 +3920,63 @@ export async function reapStaleNotifyFallbackWatcher(
 
   try {
     const record = parseWatcherPidRecord(await readFileImpl(pidPath, "utf-8"));
-    if (record && isWatcherProcessImpl(record.pid)) {
-      tryKillPidImpl(record.pid, "SIGTERM");
+    if (!record?.pid) return false;
+    if (!isWatcherProcessImpl(record.pid)) return false;
+
+    if (owner && isPidAlive(record.pid)) {
+      const expectedSessionId = owner.sessionId?.trim() ?? "";
+      const actualSessionId = record.session_id?.trim() ?? "";
+      const statePath = join(dirname(pidPath), "notify-fallback-state.json");
+      let state: { pid?: number; cwd?: string; parent_pid?: number; owner_token?: string } | null = null;
+      if (exists(statePath)) {
+        try {
+          const parsed = JSON.parse(
+            await readFileImpl(statePath, "utf-8"),
+          ) as { pid?: unknown; cwd?: unknown; parent_pid?: unknown; owner_token?: unknown };
+          state = {
+            pid:
+              typeof parsed.pid === "number" &&
+              Number.isFinite(parsed.pid) &&
+              parsed.pid > 0
+                ? parsed.pid
+                : undefined,
+            cwd: typeof parsed.cwd === "string" ? parsed.cwd : undefined,
+            parent_pid:
+              typeof parsed.parent_pid === "number" &&
+              Number.isFinite(parsed.parent_pid) &&
+              parsed.parent_pid > 0
+                ? parsed.parent_pid
+                : undefined,
+            owner_token:
+              typeof parsed.owner_token === "string" ? parsed.owner_token : undefined,
+          };
+        } catch {
+          state = null;
+        }
+      }
+
+      const owned =
+        record.cwd === owner.cwd &&
+        record.parent_pid === owner.ownerPid &&
+        actualSessionId === expectedSessionId &&
+        !!state &&
+        state.pid === record.pid &&
+        state.cwd === owner.cwd &&
+        state.parent_pid === owner.ownerPid &&
+        (!record.owner_token || !state.owner_token || state.owner_token === record.owner_token);
+
+      if (!owned) {
+        warn("[omx] warning: refusing to stop unowned notify fallback watcher", {
+          path: pidPath,
+          pid: record.pid,
+          cwd: record.cwd,
+          parent_pid: record.parent_pid,
+          session_id: record.session_id,
+        });
+        return false;
+      }
     }
+    return tryKillPidImpl(record.pid, "SIGTERM");
   } catch (error: unknown) {
     if (!hasErrnoCodeImpl(error, "ESRCH")) {
       warn(
@@ -3897,6 +3987,7 @@ export async function reapStaleNotifyFallbackWatcher(
         },
       );
     }
+    return false;
   }
 }
 

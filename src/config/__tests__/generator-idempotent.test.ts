@@ -191,7 +191,7 @@ describe("config generator idempotency (#384)", () => {
     const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
     try {
       const configPath = join(wd, "config.toml");
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assertSingleOmxBlock(toml);
@@ -210,12 +210,12 @@ describe("config generator idempotency (#384)", () => {
       const configPath = join(wd, "config.toml");
 
       // First run
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const first = await readFile(configPath, "utf-8");
       assertSingleOmxBlock(first);
 
       // Second run
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const second = await readFile(configPath, "utf-8");
       assertSingleOmxBlock(second);
     } finally {
@@ -228,9 +228,9 @@ describe("config generator idempotency (#384)", () => {
     try {
       const configPath = join(wd, "config.toml");
 
-      await mergeConfig(configPath, wd);
-      await mergeConfig(configPath, wd);
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
 
       const toml = await readFile(configPath, "utf-8");
       assertSingleOmxBlock(toml);
@@ -250,8 +250,8 @@ describe("config generator idempotency (#384)", () => {
         'model = "o3"',
         "",
         'notify = ["node", "/old/path/notify-hook.js"]',
-        'model_reasoning_effort = "medium"',
-        'developer_instructions = "old instructions"',
+        'model_reasoning_effort = "high"',
+        'developer_instructions = "You have oh-my-codex installed. old instructions"',
         "",
         "[features]",
         "multi_agent = true",
@@ -273,7 +273,7 @@ describe("config generator idempotency (#384)", () => {
       ].join("\n");
       await writeFile(configPath, legacy);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assertSingleOmxBlock(toml);
@@ -320,7 +320,7 @@ describe("config generator idempotency (#384)", () => {
       ].join("\n");
       await writeFile(configPath, mixed);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assertSingleOmxBlock(toml);
@@ -338,7 +338,7 @@ describe("config generator idempotency (#384)", () => {
       const configPath = join(wd, "config.toml");
 
       // First run
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
 
       // User adds content
       let toml = await readFile(configPath, "utf-8");
@@ -346,7 +346,7 @@ describe("config generator idempotency (#384)", () => {
       await writeFile(configPath, toml);
 
       // Second run
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const result = await readFile(configPath, "utf-8");
 
       assertSingleOmxBlock(result);
@@ -390,7 +390,7 @@ describe("config generator idempotency (#384)", () => {
       ].join("\n");
       await writeFile(configPath, orphanedAgents);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assertSingleOmxBlock(toml);
@@ -422,7 +422,7 @@ describe("config generator idempotency (#384)", () => {
       ].join("\n");
       await writeFile(configPath, userAgents);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       // User-defined agents must survive
@@ -463,8 +463,8 @@ describe("config generator idempotency (#384)", () => {
       ].join("\n");
       await writeFile(configPath, userTui);
 
-      await mergeConfig(configPath, wd);
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assert.equal(count(toml, /^\[tui\]$/gm), 1, "[tui] should appear once");
@@ -561,6 +561,7 @@ describe("config generator idempotency (#384)", () => {
   it("skips emitting an OMX [tui] table when includeTui is disabled", () => {
     const toml = buildMergedConfig("", "/tmp/omx", {
       includeTui: false,
+      targetPlatform: 'linux',
     });
 
     assert.doesNotMatch(toml, /^\[tui\]$/m);
@@ -570,7 +571,7 @@ describe("config generator idempotency (#384)", () => {
   });
 
   it('seeds USE_OMX_EXPLORE_CMD=1 into generated config by default', () => {
-    const toml = buildMergedConfig('', '/tmp/omx');
+    const toml = buildMergedConfig('', '/tmp/omx', { targetPlatform: 'linux' });
 
     assert.doesNotMatch(toml, /^\[env\]$/m);
     assert.match(toml, /^\[shell_environment_policy\.set\]$/m);
@@ -581,6 +582,7 @@ describe("config generator idempotency (#384)", () => {
     const toml = buildMergedConfig(
       ['[env]', 'FOO = "bar"', 'USE_OMX_EXPLORE_CMD = "0"', ''].join('\n'),
       '/tmp/omx',
+      { targetPlatform: 'linux' },
     );
 
     assert.doesNotMatch(toml, /^\[env\]$/m);
@@ -621,19 +623,21 @@ describe("config generator idempotency (#384)", () => {
     try {
       const configPath = join(wd, "config.toml");
       const existing = [
+        '# oh-my-codex top-level settings (must be before any [table])',
+        'notify = ["node", "/tmp/legacy/dist/scripts/notify-hook.js"]',
+        'developer_instructions = "You have oh-my-codex installed."',
+        "",
         "[shell_environment_policy]",
         'inherit = "all"',
         "",
-        'notify = ["node", "/tmp/legacy-notify-hook.js"]',
-        "",
         '    "node",',
-        '    "/tmp/legacy-notify-hook.js",',
+        '    "/tmp/legacy/dist/scripts/notify-hook.js",',
         "]",
         "",
       ].join("\n");
       await writeFile(configPath, existing);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assert.equal(count(toml, /^notify\s*=/gm), 1, "notify should appear once");
@@ -650,49 +654,40 @@ describe("config generator idempotency (#384)", () => {
       const configPath = join(wd, "config.toml");
       await writeFile(configPath, 'approval_policy = "on-failure"\n');
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assert.match(toml, /^model = "gpt-5.5"$/m);
-      assert.match(
-        toml,
-        /^# oh-my-codex seeded behavioral defaults \(uninstall removes unchanged defaults\)$/m,
-      );
       assert.match(toml, /^model_context_window = 250000$/m);
       assert.match(toml, /^model_auto_compact_token_limit = 200000$/m);
-      assert.match(toml, /^# End oh-my-codex seeded behavioral defaults$/m);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
   });
 
-  it("can override gpt-5.3-codex to gpt-5.5 and seed 250k context defaults", async () => {
+  it("can override gpt-5.3-codex to gpt-5.4 without seeding gpt-5.5 context defaults", async () => {
     const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
     try {
       const toml = buildMergedConfig('model = \"gpt-5.3-codex\"\n', wd, {
-        modelOverride: "gpt-5.5",
+        modelOverride: "gpt-5.4",
+        targetPlatform: "linux",
       });
 
-      assert.match(toml, /^model = "gpt-5\.5"$/m);
+      assert.match(toml, /^model = "gpt-5\.4"$/m);
       assert.doesNotMatch(toml, /^model = "gpt-5\.3-codex"$/m);
-      assert.match(
-        toml,
-        /^# oh-my-codex seeded behavioral defaults \(uninstall removes unchanged defaults\)$/m,
-      );
-      assert.match(toml, /^model_context_window = 250000$/m);
-      assert.match(toml, /^model_auto_compact_token_limit = 200000$/m);
-      assert.match(toml, /^# End oh-my-codex seeded behavioral defaults$/m);
+      assert.doesNotMatch(toml, /^model_context_window = 250000$/m);
+      assert.doesNotMatch(toml, /^model_auto_compact_token_limit = 200000$/m);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
   });
-  it("does not seed 250k context defaults for non-gpt-5.5 models", async () => {
+  it("does not seed gpt-5.5 context defaults for non-gpt-5.5 models", async () => {
     const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
     try {
       const configPath = join(wd, "config.toml");
       await writeFile(configPath, 'model = "o3"\n');
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assert.match(toml, /^model = "o3"$/m, "user model preserved");
@@ -703,7 +698,7 @@ describe("config generator idempotency (#384)", () => {
     }
   });
 
-  it("seeds missing auto compact limit without overwriting an existing context window", async () => {
+  it("preserves partial user context config without backfilling the missing partner key", async () => {
     const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
     try {
       const configPath = join(wd, "config.toml");
@@ -712,53 +707,12 @@ describe("config generator idempotency (#384)", () => {
         ['model = "gpt-5.5"', "model_context_window = 640000", ""].join("\n"),
       );
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assert.match(toml, /^model = "gpt-5\.5"$/m);
       assert.match(toml, /^model_context_window = 640000$/m);
-      assert.match(toml, /^model_auto_compact_token_limit = 200000$/m);
-    } finally {
-      await rm(wd, { recursive: true, force: true });
-    }
-  });
-
-  it("seeds missing context window without overwriting an existing auto compact limit", async () => {
-    const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
-    try {
-      const configPath = join(wd, "config.toml");
-      await writeFile(
-        configPath,
-        ['model = "gpt-5.5"', "model_auto_compact_token_limit = 150000", ""].join("\n"),
-      );
-
-      await mergeConfig(configPath, wd);
-      const toml = await readFile(configPath, "utf-8");
-
-      assert.match(toml, /^model = "gpt-5\.5"$/m);
-      assert.match(toml, /^model_context_window = 250000$/m);
-      assert.match(toml, /^model_auto_compact_token_limit = 150000$/m);
-    } finally {
-      await rm(wd, { recursive: true, force: true });
-    }
-  });
-
-  it("does not duplicate independently seeded defaults across reruns", async () => {
-    const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
-    try {
-      const configPath = join(wd, "config.toml");
-      await writeFile(
-        configPath,
-        ['model = "gpt-5.5"', "model_context_window = 640000", ""].join("\n"),
-      );
-
-      await mergeConfig(configPath, wd);
-      await mergeConfig(configPath, wd);
-
-      const toml = await readFile(configPath, "utf-8");
-      assert.equal(count(toml, /^model_context_window = 640000$/gm), 1);
-      assert.equal(count(toml, /^model_auto_compact_token_limit = 200000$/gm), 1);
-      assert.doesNotMatch(toml, /^model_context_window = 250000$/m);
+      assert.doesNotMatch(toml, /^model_auto_compact_token_limit = 200000$/m);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -768,8 +722,8 @@ describe("config generator idempotency (#384)", () => {
     const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
     try {
       const configPath = join(wd, "config.toml");
-      await mergeConfig(configPath, wd);
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
 
       const toml = await readFile(configPath, "utf-8");
       assert.equal(
@@ -787,19 +741,6 @@ describe("config generator idempotency (#384)", () => {
         1,
         "seeded auto compact limit should appear once",
       );
-      assert.equal(
-        count(
-          toml,
-          /^# oh-my-codex seeded behavioral defaults \(uninstall removes unchanged defaults\)$/gm,
-        ),
-        1,
-        "seeded defaults start marker should appear once",
-      );
-      assert.equal(
-        count(toml, /^# End oh-my-codex seeded behavioral defaults$/gm),
-        1,
-        "seeded defaults end marker should appear once",
-      );
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -809,7 +750,7 @@ describe("config generator idempotency (#384)", () => {
     const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
     try {
       const configPath = join(wd, "config.toml");
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assert.match(toml, /^\[agents\]$/m, "global [agents] section present");
@@ -859,7 +800,7 @@ describe("config generator idempotency (#384)", () => {
       await writeFile(configPath, broken);
 
       // buildMergedConfig should produce a clean config with only one [tui]
-      const toml = buildMergedConfig(broken, wd);
+      const toml = buildMergedConfig(broken, wd, { targetPlatform: "linux" });
       assert.equal(count(toml, /^\[tui\]$/gm), 1, "[tui] should appear once");
       assert.equal(
         count(toml, /^# End oh-my-codex$/gm),
@@ -900,7 +841,7 @@ describe("config generator idempotency (#384)", () => {
       ].join("\n");
       await writeFile(configPath, legacy);
 
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const toml = await readFile(configPath, "utf-8");
 
       assertSingleOmxBlock(toml);
@@ -934,7 +875,7 @@ describe("config generator idempotency (#384)", () => {
       ].join("\n");
       await writeFile(configPath, legacy);
 
-      const didRepair = await repairConfigIfNeeded(configPath, wd);
+      const didRepair = await repairConfigIfNeeded(configPath, wd, { targetPlatform: "linux" });
       assert.equal(didRepair, true, "legacy team-run config should be repaired");
 
       const toml = await readFile(configPath, "utf-8");
@@ -956,12 +897,12 @@ describe("config generator idempotency (#384)", () => {
       const configPath = join(wd, "config.toml");
 
       // First: create a clean config
-      await mergeConfig(configPath, wd);
+      await mergeConfig(configPath, wd, { targetPlatform: "linux" });
       const clean = await readFile(configPath, "utf-8");
       assert.equal(count(clean, /^\[tui\]$/gm), 1);
 
       // repairConfigIfNeeded should be a no-op
-      const wasRepaired = await repairConfigIfNeeded(configPath, wd);
+      const wasRepaired = await repairConfigIfNeeded(configPath, wd, { targetPlatform: "linux" });
       assert.equal(wasRepaired, false, "clean config should not need repair");
 
       // Now break it by appending a second [tui]
@@ -970,7 +911,7 @@ describe("config generator idempotency (#384)", () => {
       assert.equal(count(broken, /^\[tui\]$/gm), 2);
 
       // repairConfigIfNeeded should fix it
-      const didRepair = await repairConfigIfNeeded(configPath, wd);
+      const didRepair = await repairConfigIfNeeded(configPath, wd, { targetPlatform: "linux" });
       assert.equal(didRepair, true, "broken config should be repaired");
 
       const repaired = await readFile(configPath, "utf-8");
@@ -995,6 +936,7 @@ describe("config generator idempotency (#384)", () => {
           },
         ],
         sharedMcpRegistrySource: "/tmp/.omx/mcp-registry.json",
+        targetPlatform: "linux",
       });
       const second = buildMergedConfig(first, wd, {
         sharedMcpServers: [
@@ -1007,6 +949,7 @@ describe("config generator idempotency (#384)", () => {
           },
         ],
         sharedMcpRegistrySource: "/tmp/.omx/mcp-registry.json",
+        targetPlatform: "linux",
       });
 
       assert.equal(
@@ -1048,6 +991,7 @@ describe("config generator idempotency (#384)", () => {
         },
       ],
       sharedMcpRegistrySource: "/tmp/.omx/mcp-registry.json",
+      targetPlatform: "linux",
     });
 
     assert.equal(count(merged, /^\[mcp_servers\.existing_server\]$/gm), 1);
@@ -1063,8 +1007,8 @@ describe("config generator idempotency (#384)", () => {
       "",
     ].join("\n");
 
-    const first = buildMergedConfig(existing, "/tmp/omx");
-    const second = buildMergedConfig(first, "/tmp/omx");
+    const first = buildMergedConfig(existing, "/tmp/omx", { targetPlatform: "linux" });
+    const second = buildMergedConfig(first, "/tmp/omx", { targetPlatform: "linux" });
 
     assert.match(first, /^\[mcp_servers\.filesystem\]$/m);
     assert.match(first, /^startup_timeout_sec = 15$/m);
@@ -1084,7 +1028,7 @@ describe("config generator idempotency (#384)", () => {
       "",
     ].join("\n");
 
-    const merged = buildMergedConfig(existing, "/tmp/omx");
+    const merged = buildMergedConfig(existing, "/tmp/omx", { targetPlatform: "linux" });
 
     assert.equal(count(merged, /^startup_timeout_sec = 22$/gm), 1);
     assert.doesNotMatch(
@@ -1101,61 +1045,10 @@ describe("config generator idempotency (#384)", () => {
       "",
     ].join("\n");
 
-    const merged = buildMergedConfig(existing, "/tmp/omx");
+    const merged = buildMergedConfig(existing, "/tmp/omx", { targetPlatform: "linux" });
 
     assert.match(merged, /^\[mcp_servers\.seq\]$/m);
     assert.match(merged, /^startup_timeout_sec = 15$/m);
-  });
-
-  it("removes an existing multiline developer_instructions assignment as one root entry", () => {
-    const existing = [
-      'model = "gpt-5.5"',
-      'developer_instructions = """Custom instructions survive as valid TOML.',
-      'This line used to be orphaned by setup.',
-      'This closing line used to break parsing."""',
-      "",
-      "[features]",
-      "web_search = true",
-      "",
-    ].join("\n");
-
-    const merged = buildMergedConfig(existing, "/tmp/omx");
-
-    assert.doesNotMatch(merged, /This line used to be orphaned/);
-    assert.doesNotMatch(merged, /This closing line used to break parsing/);
-    assert.equal(count(merged, /^developer_instructions\s*=/gm), 1);
-    assert.doesNotThrow(() => TOML.parse(merged));
-  });
-
-  it("preserves root model values when mergeConfig sees multiline root strings", async () => {
-    const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
-    try {
-      const configPath = join(wd, "config.toml");
-      await writeFile(
-        configPath,
-        [
-          'developer_instructions = """Custom instructions.',
-          'Multiple lines.',
-          'Done."""',
-          'model = "o3"',
-          "model_context_window = 123456",
-          "",
-          "[features]",
-          "web_search = true",
-          "",
-        ].join("\n"),
-      );
-
-      await mergeConfig(configPath, wd);
-      const merged = await readFile(configPath, "utf-8");
-
-      assert.match(merged, /^model = "o3"$/m);
-      assert.match(merged, /^model_context_window = 123456$/m);
-      assert.doesNotMatch(merged, /^model_auto_compact_token_limit = 200000$/m);
-      assert.doesNotThrow(() => TOML.parse(merged));
-    } finally {
-      await rm(wd, { recursive: true, force: true });
-    }
   });
 
   it("repairConfigIfNeeded backfills launcher-backed MCP startup timeouts", async () => {
@@ -1172,11 +1065,92 @@ describe("config generator idempotency (#384)", () => {
         ].join("\n"),
       );
 
-      const repaired = await repairConfigIfNeeded(configPath, wd);
+      const repaired = await repairConfigIfNeeded(configPath, wd, { targetPlatform: "linux" });
       const config = await readFile(configPath, "utf-8");
 
       assert.equal(repaired, true);
       assert.match(config, /^startup_timeout_sec = 15$/m);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it("repairConfigIfNeeded removes stale OMX-managed notify-hook routing on win32 targets", async () => {
+    const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
+    try {
+      const configPath = join(wd, "config.toml");
+      await writeFile(
+        configPath,
+        [
+          '# oh-my-codex top-level settings (must be before any [table])',
+          'notify = ["node", "/tmp/legacy/dist/scripts/notify-hook.js"]',
+          'model_reasoning_effort = "high"',
+          'developer_instructions = "You have oh-my-codex installed."',
+          "",
+        ].join("\n"),
+      );
+
+      const repaired = await repairConfigIfNeeded(configPath, wd, { targetPlatform: "win32" });
+      const config = await readFile(configPath, "utf-8");
+
+      assert.equal(repaired, true);
+      assert.doesNotMatch(config, /notify-hook\.js/);
+      assert.match(config, /^model_reasoning_effort = "medium"$/m);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it("repairConfigIfNeeded leaves user-owned notify commands untouched on win32 targets", async () => {
+    const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
+    try {
+      const configPath = join(wd, "config.toml");
+      await writeFile(
+        configPath,
+        [
+          'notify = ["node", "C:/custom/user-notify.js"]',
+          "",
+          '[features]',
+          'web_search = true',
+          "",
+        ].join("\n"),
+      );
+
+      const repaired = await repairConfigIfNeeded(configPath, wd, { targetPlatform: "win32" });
+      const config = await readFile(configPath, "utf-8");
+
+      assert.equal(repaired, false);
+      assert.match(config, /^notify = \["node", "C:\/custom\/user-notify\.js"\]$/m);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it("repairConfigIfNeeded leaves user-owned custom notify-hook routes untouched on win32 targets", async () => {
+    const wd = await mkdtemp(join(tmpdir(), "omx-idem-"));
+    try {
+      const configPath = join(wd, "config.toml");
+      await writeFile(
+        configPath,
+        [
+          'notify = ["node", "C:/custom/dist/scripts/notify-hook.js"]',
+          "",
+          '[features]',
+          'web_search = true',
+          "",
+        ].join("\n"),
+      );
+
+      const repaired = await repairConfigIfNeeded(configPath, wd, {
+        targetPlatform: "win32",
+      });
+      const config = await readFile(configPath, "utf-8");
+
+      assert.equal(repaired, false);
+      assert.match(
+        config,
+        /^notify = \["node", "C:\/custom\/dist\/scripts\/notify-hook\.js"\]$/m,
+      );
     } finally {
       await rm(wd, { recursive: true, force: true });
     }

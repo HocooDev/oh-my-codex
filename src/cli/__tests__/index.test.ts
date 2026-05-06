@@ -762,15 +762,15 @@ describe("watcher script path resolution", () => {
   it("resolves packaged watcher entrypoints from dist/scripts", () => {
     assert.equal(
       resolveNotifyFallbackWatcherScript("/pkg"),
-      "/pkg/dist/scripts/notify-fallback-watcher.js",
+      join("/pkg", "dist", "scripts", "notify-fallback-watcher.js"),
     );
     assert.equal(
       resolveHookDerivedWatcherScript("/pkg"),
-      "/pkg/dist/scripts/hook-derived-watcher.js",
+      join("/pkg", "dist", "scripts", "hook-derived-watcher.js"),
     );
     assert.equal(
       resolveNotifyHookScript("/pkg"),
-      "/pkg/dist/scripts/notify-hook.js",
+      join("/pkg", "dist", "scripts", "notify-hook.js"),
     );
   });
 });
@@ -813,14 +813,14 @@ describe("shouldEnableNotifyFallbackWatcher", () => {
     );
   });
 
-  it("disables notify fallback by default on win32", () => {
-    assert.equal(shouldEnableNotifyFallbackWatcher({}, "win32"), false);
+  it("enables notify fallback by default on win32", () => {
+    assert.equal(shouldEnableNotifyFallbackWatcher({}, "win32"), true);
   });
 
-  it("allows explicit opt-in for notify fallback on win32", () => {
+  it("allows explicit opt-out for notify fallback on win32", () => {
     assert.equal(
-      shouldEnableNotifyFallbackWatcher({ OMX_NOTIFY_FALLBACK: "1" }, "win32"),
-      true,
+      shouldEnableNotifyFallbackWatcher({ OMX_NOTIFY_FALLBACK: "0" }, "win32"),
+      false,
     );
   });
 });
@@ -846,7 +846,7 @@ describe("reapStaleNotifyFallbackWatcher", () => {
       });
 
       assert.deepEqual(killed, [{ pid: 4321, signal: "SIGTERM" }]);
-      assert.equal(shouldEnableNotifyFallbackWatcher({}, "win32"), false);
+      assert.equal(shouldEnableNotifyFallbackWatcher({}, "win32"), true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -901,6 +901,62 @@ describe("reapStaleNotifyFallbackWatcher", () => {
       });
       assert.equal(warned.length, 1);
       assert.equal(warned[0]?.message, "[omx] warning: failed to stop stale notify fallback watcher");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to stop a live watcher whose ownership metadata does not match the expected owner", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-unowned-notify-fallback-"));
+    try {
+      const stateDir = join(cwd, ".omx", "state");
+      await mkdir(stateDir, { recursive: true });
+      const pidPath = join(stateDir, "notify-fallback.pid");
+      const statePath = join(stateDir, "notify-fallback-state.json");
+      await writeFile(
+        pidPath,
+        JSON.stringify({
+          pid: process.pid,
+          cwd,
+          session_id: "sess-other",
+          parent_pid: 777,
+          owner_token: "owner-777",
+        }),
+        "utf-8",
+      );
+      await writeFile(
+        statePath,
+        JSON.stringify({
+          pid: process.pid,
+          cwd,
+          parent_pid: 777,
+          owner_token: "owner-777",
+        }),
+        "utf-8",
+      );
+
+      const killed: Array<{ pid: number; signal?: NodeJS.Signals }> = [];
+      const warnings: Array<{ message: unknown; meta: unknown }> = [];
+
+      await reapStaleNotifyFallbackWatcher(
+        pidPath,
+        {
+          tryKillPid(pid, signal) {
+            killed.push({ pid, signal });
+            return true;
+          },
+          warn(message, meta) {
+            warnings.push({ message, meta });
+          },
+        },
+        { cwd, ownerPid: 43210, sessionId: "sess-current" },
+      );
+
+      assert.deepEqual(killed, []);
+      assert.match(
+        String(warnings[0]?.message),
+        /refusing to stop unowned notify fallback watcher/,
+      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -1035,6 +1091,7 @@ describe("commandOwnsLocalHelp", () => {
       "agents-init",
       "ask",
       "question",
+      "ready",
       "autoresearch",
       "deepinit",
       "hooks",
@@ -1141,6 +1198,13 @@ describe("resolveCliInvocation", () => {
     });
   });
 
+  it("resolves ready to ready command", () => {
+    assert.deepEqual(resolveCliInvocation(["ready", "--json"]), {
+      command: "ready",
+      launchArgs: [],
+    });
+  });
+
   it("resolves hooks to hooks command", () => {
     assert.deepEqual(resolveCliInvocation(["hooks"]), {
       command: "hooks",
@@ -1192,6 +1256,24 @@ describe("resolveCliInvocation", () => {
 
   it("advertises the explicit update command in top-level help", () => {
     assert.match(HELP, /omx update\s+Check npm now, update the global install immediately, then refresh setup/);
+  });
+
+  it("advertises first-run and operator commands in the intended help sections", () => {
+    assert.match(HELP, /omx ready\s+Check install, Codex auth, real exec smoke, and platform runtime readiness/);
+    assert.match(HELP, /omx setup\s+Install skills, prompts, MCP servers, and scope-specific AGENTS\.md/);
+    assert.match(HELP, /omx doctor\s+Check installation health/);
+    assert.match(HELP, /omx explore\s+Default read-only exploration entrypoint \(may adaptively use sparkshell backend\)/);
+    assert.match(HELP, /omx sparkshell <command> \[args\.\.\.\]/);
+    assert.match(HELP, /omx team\s+Spawn parallel worker panes in tmux and bootstrap inbox\/task state/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx state\s+Read\/write\/list OMX mode state via CLI parity surface/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx notepad\s+CLI parity for OMX notepad MCP tools/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx project-memory/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx trace\s+CLI parity for OMX trace MCP tools/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx code-intel/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx wiki\s+CLI parity for OMX wiki MCP tools/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx hooks\s+Manage hook plugins/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx tmux-hook\s+Manage tmux prompt injection workaround/);
+    assert.match(HELP, /Advanced \/ operator:[\s\S]*omx hud\s+Show HUD statusline/);
   });
 
   it("advertises direct launch policy controls in top-level help", () => {
@@ -1540,7 +1622,7 @@ describe("project launch scope helpers", () => {
         resolveCodexConfigPathForLaunch(wd, {
           CODEX_HOME: "/tmp/explicit-codex-home",
         }),
-        "/tmp/explicit-codex-home/config.toml",
+        join("/tmp/explicit-codex-home", "config.toml"),
       );
     } finally {
       await rm(wd, { recursive: true, force: true });
@@ -2144,6 +2226,7 @@ describe("detached tmux new-session sequencing", () => {
   });
 
   it("detached leader command keeps stdin open for the Codex child", async () => {
+    if (process.platform === "win32") return;
     const cwd = await mkdtemp(join(tmpdir(), "omx-detached-leader-stdin-"));
     const fakeBin = join(cwd, "bin");
     const stdinLogPath = join(cwd, "stdin.log");
@@ -2213,6 +2296,7 @@ exit 0
   });
 
   it("detached leader command preserves cwd and cleanup without shell-quote breakage", async () => {
+    if (process.platform === "win32") return;
     const cwd = await mkdtemp(join(tmpdir(), "omx-detached-leader-"));
     const fakeBin = join(cwd, "bin");
     const logPath = join(cwd, "leader.log");
@@ -2293,6 +2377,7 @@ exit 0
   });
 
   it("detached leader command preserves the detached tmux session on signal-derived exits", async () => {
+    if (process.platform === "win32") return;
     const cwd = await mkdtemp(join(tmpdir(), "omx-detached-leader-signal-"));
     const fakeBin = join(cwd, "bin");
     const logPath = join(cwd, "leader.log");
@@ -2368,6 +2453,7 @@ exit 0
   });
 
   it("detached leader command terminates codex child on external SIGHUP", async () => {
+    if (process.platform === "win32") return;
     const cwd = await mkdtemp(join(tmpdir(), "omx-detached-leader-hup-"));
     const fakeBin = join(cwd, "bin");
     const pidFile = join(cwd, "codex.pid");
@@ -3256,19 +3342,18 @@ describe("native Windows psmux-compatible tmux resolution", () => {
     try {
       await mkdir(fakeBin, { recursive: true });
       await writeFile(
-        join(fakeBin, "psmux.exe"),
-        `#!/bin/sh
-if [ "$1" = "display-message" ] && [ "$2" = "-p" ] && [ "$3" = "-t" ] && [ "$4" = "%7" ] && [ "$5" = "#S" ]; then
-  printf 'psmux-session\\n'
-  exit 0
-fi
-printf 'unexpected:%s\\n' "$*" >&2
-exit 1
+        join(fakeBin, "psmux.cmd"),
+        `@echo off
+if "%~1"=="display-message" if "%~2"=="-p" if "%~3"=="-t" if "%~4"=="%%7" if "%~5"=="#S" (
+  echo psmux-session
+  exit /b 0
+)
+echo unexpected:%* 1>&2
+exit /b 1
 `,
       );
-      await chmod(join(fakeBin, "psmux.exe"), 0o755);
       process.env.PATH = fakeBin;
-      process.env.PATHEXT = ".EXE";
+      process.env.PATHEXT = ".CMD;.EXE";
       const sessionName = resolveNativeSessionName("/tmp/repo", "omx-abc123", {
         ...process.env,
         TMUX: "1",
@@ -3294,19 +3379,18 @@ exit 1
     try {
       await mkdir(fakeBin, { recursive: true });
       await writeFile(
-        join(fakeBin, "psmux.exe"),
-        `#!/bin/sh
-if [ "$1" = "display-message" ] && [ "$2" = "-p" ] && [ "$3" = "-t" ] && [ "$4" = "omx-demo" ] && [ "$5" = "#{window_index}" ]; then
-  printf '3\\n'
-  exit 0
-fi
-printf 'unexpected:%s\\n' "$*" >&2
-exit 1
+        join(fakeBin, "psmux.cmd"),
+        `@echo off
+if "%~1"=="display-message" if "%~2"=="-p" if "%~3"=="-t" if "%~4"=="omx-demo" (
+  echo 3
+  exit /b 0
+)
+echo unexpected:%* 1>&2
+exit /b 1
 `,
       );
-      await chmod(join(fakeBin, "psmux.exe"), 0o755);
       process.env.PATH = fakeBin;
-      process.env.PATHEXT = ".EXE";
+      process.env.PATHEXT = ".CMD;.EXE";
       assert.equal(detectDetachedSessionWindowIndex("omx-demo"), "3");
     } finally {
       process.env.PATH = originalPath;
@@ -3469,6 +3553,10 @@ describe("readTopLevelTomlString", () => {
 
 describe("injectModelInstructionsBypassArgs", () => {
   it("appends model_instructions_file override by default", () => {
+    const expectedPath = join("/tmp/my-project", "AGENTS.md").replaceAll(
+      "\\",
+      "\\\\",
+    );
     const args = injectModelInstructionsBypassArgs(
       "/tmp/my-project",
       ["--model", "gpt-5"],
@@ -3478,7 +3566,7 @@ describe("injectModelInstructionsBypassArgs", () => {
       "--model",
       "gpt-5",
       "-c",
-      'model_instructions_file="/tmp/my-project/AGENTS.md"',
+      `model_instructions_file="${expectedPath}"`,
     ]);
   });
 

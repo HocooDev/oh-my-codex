@@ -6,12 +6,13 @@ Use this page when OMX appears installed but real Codex execution still fails.
 
 `omx setup` and `omx doctor` validate OMX's local install surface: prompts, skills, AGENTS scaffolding, config files, hooks, and runtime prerequisites. They do not guarantee that the active Codex profile can authenticate and complete a model request.
 
-After `omx doctor`, run a real smoke test from the same shell, HOME, and project directory you will use for OMX:
+Use `omx ready` as the first-run trust check from the same shell, HOME, and project directory you will use for OMX:
 
 ```bash
-codex login status
-omx exec --skip-git-repo-check -C . "Reply with exactly OMX-EXEC-OK"
+omx ready
 ```
+
+By default, `omx ready` runs `omx doctor`, `codex login status`, and a real `omx exec --skip-git-repo-check -C <cwd> "Reply with exactly OMX-EXEC-OK"` smoke. Use `omx ready --skip-exec` only when you want to avoid the model call.
 
 Treat the boundary this way:
 
@@ -20,6 +21,9 @@ Treat the boundary this way:
 - `omx doctor` green: install and local runtime wiring look sane.
 - `codex login status` green: the active Codex profile can see login state.
 - `omx exec ...` returns `OMX-EXEC-OK`: real execution, auth, provider routing, and current working-directory assumptions are working together.
+- `omx ready` green without `--skip-exec`: all three boundaries passed in one command.
+
+On native Windows PowerShell, `omx ready` also reports runtime guidance: use `omx sparkshell` as the primary shell-helper path, treat the built-in `omx explore` harness as secondary, and install `psmux` or use WSL2 for team/tmux workflows.
 
 ## Green doctor, but `omx exec` fails with auth errors
 

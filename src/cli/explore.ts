@@ -2,6 +2,7 @@ import { readFile } from 'fs/promises';
 import { isAbsolute, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { getPackageRoot } from '../utils/package.js';
+import { promptSurfaceSkillPath } from '../utils/prompt-surface.js';
 import { spawnPlatformCommandSync } from '../utils/platform-command.js';
 import {
   isSparkShellNativeCompatibilityFailure,
@@ -436,7 +437,7 @@ export function buildExploreHarnessArgs(
   return [
     '--cwd', cwd,
     '--prompt', promptWithWikiContext,
-    '--prompt-file', join(packageRoot, 'prompts', 'explore-harness.md'),
+    '--prompt-file', promptSurfaceSkillPath(join(packageRoot, 'skills'), 'explore-harness'),
     '--instructions-file', instructionsFile,
     '--model-spark', sparkModel,
     '--model-fallback', fallbackModel,

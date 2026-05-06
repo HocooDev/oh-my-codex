@@ -675,9 +675,9 @@ describe('buildExploreHarnessArgs', () => {
       assert.match(args[3] || '', /find auth/);
       assert.deepEqual(args.slice(4), [
         '--prompt-file',
-        '/pkg/prompts/explore-harness.md',
+        join('/pkg', 'skills', 'agent-explore-harness', 'SKILL.md'),
         '--instructions-file',
-        '/pkg/templates/model-instructions/explore-lightweight-AGENTS.md',
+        join('/pkg', 'templates', 'model-instructions', 'explore-lightweight-AGENTS.md'),
         '--model-spark',
         'spark-model',
         '--model-fallback',
@@ -708,7 +708,7 @@ describe('buildExploreHarnessArgs', () => {
       } as NodeJS.ProcessEnv, '/pkg');
       assert.deepEqual(args.slice(4), [
         '--prompt-file',
-        '/pkg/prompts/explore-harness.md',
+        join('/pkg', 'skills', 'agent-explore-harness', 'SKILL.md'),
         '--instructions-file',
         '/config/explore-instructions.md',
         '--model-spark',
@@ -741,9 +741,9 @@ describe('buildExploreHarnessArgs', () => {
       const args = buildExploreHarnessArgs('find auth', wd, env, '/pkg');
       assert.deepEqual(args.slice(4), [
         '--prompt-file',
-        '/pkg/prompts/explore-harness.md',
+        join('/pkg', 'skills', 'agent-explore-harness', 'SKILL.md'),
         '--instructions-file',
-        '/pkg/templates/model-instructions/explore-lightweight-AGENTS.md',
+        join('/pkg', 'templates', 'model-instructions', 'explore-lightweight-AGENTS.md'),
         '--model-spark',
         'spark-project',
         '--model-fallback',

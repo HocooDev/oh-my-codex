@@ -45,6 +45,10 @@ function shouldSkipForSpawnPermissions(err?: string): boolean {
   return typeof err === 'string' && /(EPERM|EACCES)/i.test(err);
 }
 
+function toPosixPath(path: string): string {
+  return path.replace(/\\/g, '/');
+}
+
 describe('resolveSparkShellBinaryPath', () => {
   it('prefers OMX_SPARKSHELL_BIN override', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'omx-sparkshell-override-'));
@@ -80,7 +84,7 @@ describe('resolveSparkShellBinaryPath', () => {
 
   it('checks Linux musl packaged paths before glibc and legacy paths', () => {
     assert.deepEqual(
-      packagedSparkShellBinaryCandidatePaths('/repo', 'linux', 'x64', {}, ['musl', 'glibc']),
+      packagedSparkShellBinaryCandidatePaths('/repo', 'linux', 'x64', {}, ['musl', 'glibc']).map(toPosixPath),
       [
         '/repo/bin/native/linux-x64-musl/omx-sparkshell',
         '/repo/bin/native/linux-x64-glibc/omx-sparkshell',
@@ -92,7 +96,7 @@ describe('resolveSparkShellBinaryPath', () => {
   it('tries Linux musl packaged binaries before glibc fallbacks', () => {
     const packageRoot = '/repo';
     const seen: string[] = [];
-    const glibcPath = '/repo/bin/native/linux-x64-glibc/omx-sparkshell';
+    const glibcPath = packagedSparkShellBinaryCandidatePaths(packageRoot, 'linux', 'x64', {}, ['glibc'])[0]!;
 
     assert.equal(
       resolveSparkShellBinaryPath({
@@ -108,7 +112,7 @@ describe('resolveSparkShellBinaryPath', () => {
       glibcPath,
     );
     assert.deepEqual(
-      seen.slice(0, 2),
+      seen.slice(0, 2).map(toPosixPath),
       [
         '/repo/bin/native/linux-x64-musl/omx-sparkshell',
         '/repo/bin/native/linux-x64-glibc/omx-sparkshell',
@@ -471,14 +475,15 @@ describe('omx sparkshell', () => {
       if (shouldSkipForSpawnPermissions(result.error)) return;
 
       assert.equal(result.status, 7, result.stderr || result.stdout);
-      assert.equal(result.stdout, 'spark-stdout\n');
-      assert.equal(result.stderr, 'spark-stderr\n');
+      assert.equal(result.stdout.replace(/\r\n/g, '\n'), 'spark-stdout\n');
+      assert.equal(result.stderr.replace(/\r\n/g, '\n'), 'spark-stderr\n');
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
   });
 
   it('falls back to raw execution when the packaged native binary is GLIBC-incompatible', async () => {
+    if (process.platform === 'win32') return;
     const cwd = await mkdtemp(join(tmpdir(), 'omx-sparkshell-glibc-fallback-'));
     try {
       const testDir = dirname(fileURLToPath(import.meta.url));
@@ -487,14 +492,12 @@ describe('omx sparkshell', () => {
       const cacheDir = join(cwd, 'cache');
       const binDir = join(cacheDir, packageJson.version, `${process.platform}-${process.arch}`, 'omx-sparkshell');
       await mkdir(binDir, { recursive: true });
-      const stubPath = join(binDir, process.platform === 'win32' ? 'omx-sparkshell.exe' : 'omx-sparkshell');
+      const stubPath = join(binDir, 'omx-sparkshell');
       await writeFile(
         stubPath,
-        process.platform === 'win32'
-          ? '@echo off\r\n>&2 echo omx-sparkshell: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39\' not found\r\nexit /b 1\r\n'
-          : "#!/bin/sh\necho \"omx-sparkshell: /lib/x86_64-linux-gnu/libc.so.6: version \\`GLIBC_2.39' not found\" 1>&2\nexit 1\n",
+        "#!/bin/sh\necho \"omx-sparkshell: /lib/x86_64-linux-gnu/libc.so.6: version \\`GLIBC_2.39' not found\" 1>&2\nexit 1\n",
       );
-      if (process.platform !== 'win32') await chmod(stubPath, 0o755);
+      await chmod(stubPath, 0o755);
 
       const result = runOmx(cwd, ['sparkshell', 'node', '-e', 'process.stdout.write("raw-fallback\\n")'], {
         OMX_NATIVE_CACHE_DIR: cacheDir,

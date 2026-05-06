@@ -5,7 +5,7 @@ import {
 } from 'child_process';
 import { existsSync } from 'fs';
 import { arch as osArch, constants as osConstants } from 'os';
-import { isAbsolute, join, resolve } from 'path';
+import { extname, isAbsolute, join, resolve } from 'path';
 import { getPackageRoot } from '../utils/package.js';
 import { classifySpawnError } from '../utils/platform-command.js';
 import { readConfiguredEnvOverrides } from '../config/models.js';
@@ -205,6 +205,15 @@ export function runSparkShellBinary(
     stdio: ['ignore', 'pipe', 'pipe'],
     encoding: 'utf-8',
   };
+
+  if (process.platform === 'win32' && ['.cmd', '.bat'].includes(extname(binaryPath).toLowerCase())) {
+    const quote = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+    const commandLine = [binaryPath, ...args].map(quote).join(' ');
+    return spawnImpl(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${commandLine}"`], {
+      ...spawnOptions,
+      windowsVerbatimArguments: true,
+    });
+  }
 
   return spawnImpl(binaryPath, [...args], spawnOptions);
 }
