@@ -39,6 +39,18 @@ The repository root keeps only the canonical `README.md` so the top level stays 
 | Українська          | [README.uk.md](./README.uk.md)       |
 | 繁體中文            | [README.zh-TW.md](./README.zh-TW.md) |
 
+## GitHub homepage language switch
+
+The repository homepage (`../../README.md`) exposes a direct English / 简体中文 switch near the top of the file:
+
+- English: [../../README.md](../../README.md)
+- 简体中文: [README.zh.md](./README.zh.md)
+
+Fork-specific notes are maintained in both languages:
+
+- English: [../../README.fork.en.md](../../README.fork.en.md)
+- 简体中文: [../../README.fork.zh-CN.md](../../README.fork.zh-CN.md)
+
 ## Maintenance rules
 
 * Treat `../../README.md` as the canonical source.
