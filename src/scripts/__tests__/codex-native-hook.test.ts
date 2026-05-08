@@ -1530,6 +1530,35 @@ describe("codex native hook dispatch", () => {
     }
   });
 
+  it("activates brainstorm and seeds brainstorm state for prompt-side design exploration", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-native-hook-brainstorm-routing-"));
+    try {
+      await mkdir(join(cwd, ".omx", "state"), { recursive: true });
+      const result = await dispatchCodexNativeHook(
+        {
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          session_id: "sess-brainstorm-msg",
+          thread_id: "thread-brainstorm-msg",
+          turn_id: "turn-brainstorm-msg",
+          prompt: "$brainstorm compare design options first",
+        },
+        { cwd },
+      );
+
+      assert.equal(result.omxEventName, "keyword-detector");
+      assert.equal(result.skillState?.skill, "brainstorm");
+      const message = String(
+        (result.outputJson as { hookSpecificOutput?: { additionalContext?: string } })?.hookSpecificOutput?.additionalContext || "",
+      );
+      assert.match(message, /\$brainstorm" -> brainstorm/);
+      assert.match(message, /skill: brainstorm activated and initial state initialized at \.omx\/state\/sessions\/sess-brainstorm-msg\/brainstorm-state\.json; write subsequent updates via omx_state MCP\./);
+      assert.equal(existsSync(join(cwd, ".omx", "state", "sessions", "sess-brainstorm-msg", "brainstorm-state.json")), true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("uses native fallback deep-interview guidance on Windows outside tmux", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "omx-native-hook-deep-interview-routing-win32-"));
     const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");

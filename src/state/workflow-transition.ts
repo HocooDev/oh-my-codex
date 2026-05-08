@@ -3,6 +3,7 @@ import { readFile } from 'fs/promises';
 import { getReadScopedStatePaths } from '../mcp/state-paths.js';
 
 export const TRACKED_WORKFLOW_MODES = [
+  'brainstorm',
   'autopilot',
   'autoresearch',
   'team',
@@ -22,6 +23,8 @@ const ALLOWED_OVERLAP_PAIRS = new Set([
 ]);
 
 const AUTO_COMPLETE_TRANSITIONS = new Set([
+  'brainstorm->deep-interview',
+  'brainstorm->ralplan',
   'deep-interview->ralplan',
   'deep-interview->autoresearch',
   'ralplan->team',
@@ -32,6 +35,7 @@ const AUTO_COMPLETE_TRANSITIONS = new Set([
 ]);
 
 const PLANNING_LIKE_MODES = new Set<TrackedWorkflowMode>([
+  'brainstorm',
   'deep-interview',
   'ralplan',
 ]);

@@ -21,6 +21,7 @@ Authoritative workflow state lives in per-mode files under `.omx/state/`:
 Examples:
 
 - `.omx/state/ralplan-state.json`
+- `.omx/state/brainstorm-state.json`
 - `.omx/state/sessions/<session_id>/ralph-state.json`
 - `.omx/state/team-state.json`
 
@@ -142,6 +143,8 @@ The source mode is terminalized and the destination becomes active.
 
 Current allowlisted forward handoffs:
 
+- `brainstorm -> deep-interview`
+- `brainstorm -> ralplan`
 - `deep-interview -> ralplan`
 - `ralplan -> team`
 - `ralplan -> ralph`
@@ -156,6 +159,8 @@ The requested transition is not allowed and no state is changed.
 
 | From | To | Result |
 |---|---|---|
+| `brainstorm` | `deep-interview` | auto-complete `brainstorm`, start `deep-interview` |
+| `brainstorm` | `ralplan` | auto-complete `brainstorm`, start `ralplan` |
 | `deep-interview` | `ralplan` | auto-complete `deep-interview`, start `ralplan` |
 | `ralplan` | `team` | auto-complete `ralplan`, start `team` |
 | `ralplan` | `ralph` | auto-complete `ralplan`, start `ralph` |
@@ -173,14 +178,15 @@ The requested transition is not allowed and no state is changed.
 ### Planning-like
 
 - `deep-interview`
+- `brainstorm`
 - `ralplan`
-- `autoresearch`
 
 ### Execution-like
 
 - `team`
 - `ralph`
 - `autopilot`
+- `autoresearch`
 - `ultrawork`
 - `ultraqa`
 

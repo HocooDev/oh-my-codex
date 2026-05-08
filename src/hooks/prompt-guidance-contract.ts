@@ -225,6 +225,7 @@ export const SKILL_CONTRACTS: GuidanceSurfaceContract[] = [
   ...[
     'analyze',
     'autopilot',
+    'brainstorm',
     'code-review',
     'plan',
     'ralph',

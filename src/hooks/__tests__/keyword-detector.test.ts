@@ -233,6 +233,19 @@ describe('keyword detector team compatibility', () => {
     assert.equal(match.keyword.toLowerCase(), 'deep interview');
   });
 
+  it('maps explicit $brainstorm invocation to brainstorm skill', () => {
+    const match = detectPrimaryKeyword('please run $brainstorm on this proposal');
+
+    assert.ok(match);
+    assert.equal(match.skill, 'brainstorm');
+    assert.equal(match.keyword.toLowerCase(), '$brainstorm');
+  });
+
+  it('does not trigger brainstorm from incidental prose without explicit invocation', () => {
+    assert.equal(detectPrimaryKeyword('let us brainstorm a little before we decide'), null);
+    assert.equal(detectPrimaryKeyword('the brainstorm report draft is in .omx/specs'), null);
+  });
+
   it('does not trigger deep-interview from cleanup or state-management mentions', () => {
     assert.equal(detectPrimaryKeyword('clear deep interview state before continuing'), null);
     assert.equal(detectPrimaryKeyword('cleanup stale deep-interview state after session clear'), null);
@@ -356,6 +369,10 @@ describe('explicit skill-name invocation requirement', () => {
   it('does not trigger ralplan from bare skill-name usage', () => {
     assert.equal(detectPrimaryKeyword('please do ralplan first'), null);
   });
+
+  it('does not trigger brainstorm from bare skill-name usage', () => {
+    assert.equal(detectPrimaryKeyword('please use brainstorm for this idea'), null);
+  });
 });
 
 describe('keyword registry coverage', () => {
@@ -370,6 +387,7 @@ describe('keyword registry coverage', () => {
     assert.ok(registryKeywords.has('ouroboros'));
     assert.ok(registryKeywords.has("don't assume"));
     assert.ok(registryKeywords.has('interview me'));
+    assert.ok(registryKeywords.has('$brainstorm'));
     assert.ok(registryKeywords.has('wiki query'));
     assert.ok(registryKeywords.has('wiki add'));
     assert.ok(registryKeywords.has('wiki lint'));
@@ -697,6 +715,35 @@ describe('keyword detector skill-active-state lifecycle', () => {
       assert.equal(modeState.mode, 'autoresearch');
       assert.equal(modeState.active, true);
       assert.equal(modeState.current_phase, 'executing');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('seeds planning state for brainstorm prompt-submit activation', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-keyword-state-brainstorm-'));
+    const stateDir = join(cwd, '.omx', 'state');
+    try {
+      await mkdir(stateDir, { recursive: true });
+      const result = await recordSkillActivation({
+        stateDir,
+        text: '$brainstorm explore this idea first',
+        sessionId: 'sess-brainstorm',
+        nowIso: '2026-05-08T00:00:00.000Z',
+      });
+
+      assert.ok(result);
+      assert.equal(result.skill, 'brainstorm');
+      assert.equal(result.phase, 'planning');
+      assert.equal(result.initialized_mode, 'brainstorm');
+      assert.equal(result.initialized_state_path, '.omx/state/sessions/sess-brainstorm/brainstorm-state.json');
+
+      const modeState = JSON.parse(
+        await readFile(join(stateDir, 'sessions', 'sess-brainstorm', 'brainstorm-state.json'), 'utf-8'),
+      ) as { mode: string; active: boolean; current_phase: string };
+      assert.equal(modeState.mode, 'brainstorm');
+      assert.equal(modeState.active, true);
+      assert.equal(modeState.current_phase, 'planning');
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -1355,21 +1402,27 @@ describe('keyword detector skill-active-state lifecycle', () => {
   });
 
   it('emits a warning when skill-active-state persistence fails', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-keyword-state-warn-'));
+    const blockingFilePath = join(cwd, 'not-a-directory');
     const warnings: unknown[][] = [];
     mock.method(console, 'warn', (...args: unknown[]) => {
       warnings.push(args);
     });
-
-    const result = await recordSkillActivation({
-      stateDir: join('/definitely-missing', 'nested', 'state-dir'),
+    try {
+      await writeFile(blockingFilePath, 'block directory creation');
+      const result = await recordSkillActivation({
+      stateDir: blockingFilePath,
         text: 'please run $autopilot',
-      nowIso: '2026-02-25T00:00:00.000Z',
-    });
+        nowIso: '2026-02-25T00:00:00.000Z',
+      });
 
-    assert.ok(result);
-    assert.equal(result.skill, 'autopilot');
-    assert.equal(warnings.length, 1);
-    assert.match(String(warnings[0][0]), /failed to persist keyword activation state/);
+      assert.ok(result);
+      assert.equal(result.skill, 'autopilot');
+      assert.equal(warnings.length, 1);
+      assert.match(String(warnings[0][0]), /failed to persist keyword activation state/);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it('preserves activated_at for same-skill continuation', async () => {

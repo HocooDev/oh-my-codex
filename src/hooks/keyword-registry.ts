@@ -31,6 +31,7 @@ export const KEYWORD_TRIGGER_DEFINITIONS: readonly KeywordTriggerDefinition[] = 
   { keyword: "don't assume", skill: 'deep-interview', priority: 8, guidance: 'Activate Ouroboros-inspired Socratic ambiguity-gated interview workflow' },
   { keyword: 'ouroboros', skill: 'deep-interview', priority: 8, guidance: 'Activate Ouroboros-inspired Socratic ambiguity-gated interview workflow' },
   { keyword: 'interview', skill: 'deep-interview', priority: 8, guidance: 'Activate Ouroboros-inspired Socratic ambiguity-gated interview workflow' },
+  { keyword: '$brainstorm', skill: 'brainstorm', priority: 8, guidance: 'Activate multi-agent design exploration before deep-interview or ralplan' },
 
   { keyword: '$plan', skill: 'plan', priority: 8, guidance: 'Activate planning skill' },
   { keyword: 'plan this', skill: 'plan', priority: 8, guidance: 'Activate planning skill' },

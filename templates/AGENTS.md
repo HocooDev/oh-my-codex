@@ -98,6 +98,7 @@ Not-tested: <known gaps in verification>
 Default posture: work directly.
 
 Choose the lane before acting:
+- `$brainstorm` for early idea exploration, design-option comparison, or reviewable design reports before requirements/planning.
 - `$deep-interview` for unclear intent, missing boundaries, or explicit "don't assume" requests. This mode clarifies and hands off; it does not implement.
 - `$ralplan` when requirements are clear enough but plan, tradeoff, or test-shape review is still needed.
 - `$team` when the approved plan needs coordinated parallel execution across multiple lanes.
@@ -187,7 +188,7 @@ Fallback behavior when hook context is unavailable:
 Runtime availability gate:
 - Treat `autopilot`, `ralph`, `ultrawork`, `ultraqa`, `team`/`swarm`, and `ecomode` as **OMX runtime workflows**, not generic prompt aliases.
 - Auto-activate runtime workflows only when the current session is actually running under OMX CLI/runtime (for example, launched via `omx`, with OMX session overlay/runtime state available, or when the user explicitly asks to run `omx ...` in the shell).
-- In Codex App or plain Codex sessions without OMX runtime, do **not** treat those keywords alone as activation. Explain that they require OMX CLI runtime support and are not directly available there, and continue with the nearest App-safe surface (`deep-interview`, `ralplan`, `plan`, or native subagents) unless the user explicitly wants you to launch OMX CLI from shell first.
+- In Codex App or plain Codex sessions without OMX runtime, do **not** treat those keywords alone as activation. Explain that they require OMX CLI runtime support and are not directly available there, and continue with the nearest App-safe surface (`brainstorm`, `deep-interview`, `ralplan`, `plan`, or native subagents) unless the user explicitly wants you to launch OMX CLI from shell first.
 - When deep-interview is active in attached-tmux OMX CLI/runtime, ask each interview round via `omx question` as a temporary popup-style renderer over the leader pane; after launching `omx question` in a background terminal, wait for that terminal to finish and read the JSON answer before continuing; preserve the leader pane with `OMX_QUESTION_RETURN_PANE=$TMUX_PANE` (or an explicit `%pane` value) when invoking it through Bash/tool paths, prefer `answers[0].answer` / `answers[]` from the response and use legacy `answer` only as fallback, and respect Stop-hook blocking while a deep-interview question obligation is pending. Deep-interview remains one question per round; do not batch multiple interview rounds into one `questions[]` form. Outside tmux or native surfaces that cannot render `omx question` should use the native structured question path when available, otherwise ask exactly one concise plain-text question and wait for the answer.
 
 <triage_routing>
@@ -214,7 +215,7 @@ Ralph / Ralplan execution gate:
 
 <skills>
 Skills are workflow commands.
-Core workflows include `autopilot`, `ralph`, `ultrawork`, `visual-verdict`, `visual-ralph`, `web-clone`, `ecomode`, `team`, `swarm`, `ultraqa`, `plan`, `deep-interview` (Socratic deep interview, Ouroboros-inspired), and `ralplan`.
+Core workflows include `autopilot`, `ralph`, `ultrawork`, `visual-verdict`, `visual-ralph`, `web-clone`, `ecomode`, `team`, `swarm`, `ultraqa`, `plan`, `brainstorm`, `deep-interview` (Socratic deep interview, Ouroboros-inspired), and `ralplan`.
 Utilities include `cancel`, `note`, `doctor`, `help`, `trace`, and `task-closeout-review`.
 </skills>
 
@@ -273,7 +274,7 @@ Verification loop: define the claim and success criteria, run the smallest valid
 </verification>
 
 <execution_protocols>
-Mode selection: use `$deep-interview` for unclear intent/boundaries; `$ralplan` for consensus on architecture, tradeoffs, or tests; `$team` for approved multi-lane work; `$ralph` for persistent single-owner completion/verification loops; otherwise execute directly in solo mode. Switch modes only when evidence shows the current lane is mismatched or blocked.
+Mode selection: use `$brainstorm` for design exploration before requirements/planning are approved; `$deep-interview` for unclear intent/boundaries; `$ralplan` for consensus on architecture, tradeoffs, or tests; `$team` for approved multi-lane work; `$ralph` for persistent single-owner completion/verification loops; otherwise execute directly in solo mode. Switch modes only when evidence shows the current lane is mismatched or blocked.
 
 Command routing:
 - When `USE_OMX_EXPLORE_CMD` enables advisory routing, strongly prefer `omx explore` as the default surface for simple read-only repository lookup tasks (files, symbols, patterns, relationships).

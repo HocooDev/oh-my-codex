@@ -7,6 +7,21 @@ import { readModeState, startMode, updateModeState } from '../base.js';
 import { listActiveSkills, readVisibleSkillActiveState } from '../../state/skill-active.js';
 
 describe('modes/base deep-interview contract integration', () => {
+  it('startMode persists brainstorm state', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-mode-brainstorm-contract-'));
+    try {
+      const started = await startMode('brainstorm', 'explore a vague proposal', 3, wd);
+      assert.equal(started.mode, 'brainstorm');
+      assert.equal(started.active, true);
+      assert.equal(started.current_phase, 'starting');
+      const persisted = await readModeState('brainstorm', wd);
+      assert.equal(persisted?.mode, 'brainstorm');
+      assert.equal(persisted?.task_description, 'explore a vague proposal');
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
   it('startMode persists deep-interview state', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-mode-deep-interview-contract-'));
     try {
@@ -24,6 +39,26 @@ describe('modes/base deep-interview contract integration', () => {
 });
 
 describe('modes/base autoresearch contract integration', () => {
+  it('startMode auto-completes brainstorm when starting deep-interview', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-mode-brainstorm-interview-handoff-'));
+    try {
+      await startMode('brainstorm', 'explore contract', 3, wd);
+      const started = await startMode('deep-interview', 'clarify contract', 3, wd);
+      assert.equal(started.mode, 'deep-interview');
+      assert.equal(started.active, true);
+      assert.equal(started.transition_message, 'mode transiting: brainstorm -> deep-interview');
+
+      const completed = JSON.parse(
+        await readFile(join(wd, '.omx', 'state', 'brainstorm-state.json'), 'utf-8'),
+      ) as { active?: boolean; current_phase?: string; completed_at?: string };
+      assert.equal(completed.active, false);
+      assert.equal(completed.current_phase, 'completed');
+      assert.equal(typeof completed.completed_at, 'string');
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
   it('startMode auto-completes deep-interview when starting ralplan', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-mode-interview-ralplan-handoff-'));
     try {

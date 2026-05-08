@@ -75,6 +75,7 @@ On a real `oh-my-codex` version bump, the global npm install now prints an expli
 Then work normally inside Codex:
 
 ```text
+$brainstorm "explore the design direction first"
 $deep-interview "clarify the authentication change"
 $ralplan "approve the auth plan and review tradeoffs"
 $ralph "carry the approved plan to completion"
@@ -84,12 +85,12 @@ $ultragoal "turn this launch into durable Codex goals"
 
 That is the main path.
 Before you treat the runtime as ready, run the quick-start smoke test below: `omx doctor` verifies the install shape, while `omx exec` proves the active Codex runtime can actually authenticate and complete a model call from the current environment.
-Start OMX strongly, clarify first when needed, approve the plan, then choose `$team` for coordinated parallel execution or `$ralph` for the persistent completion loop.
+Start OMX strongly, brainstorm when the idea is still fuzzy, clarify requirements when needed, approve the plan, then choose `$team` for coordinated parallel execution or `$ralph` for the persistent completion loop.
 
 ## What OMX is for
 
 Use OMX if you already like Codex and want a better day-to-day runtime around it:
-- a standard workflow built around `$deep-interview`, `$ralplan`, `$team`, and `$ralph`
+- a standard workflow built around `$brainstorm`, `$deep-interview`, `$ralplan`, `$team`, and `$ralph`
 - durable multi-goal handoffs with `$ultragoal` and `.omx/ultragoal` artifacts when a launch needs sequential Codex goals
 - specialist roles and supporting skills when the task needs them
 - project guidance through scoped `AGENTS.md`
@@ -163,6 +164,7 @@ process still runs inside that already-open terminal pane.
 Then try the canonical workflow:
 
 ```text
+$brainstorm "explore the safest design direction"
 $deep-interview "clarify the authentication change"
 $ralplan "approve the safest implementation path"
 $ralph "carry the approved plan to completion"
@@ -190,20 +192,23 @@ Most users should think of OMX as **better task routing + better workflow + bett
 3. Run `omx ready`
 4. If you do not want a model call during readiness, run `omx ready --skip-exec`
 5. Launch with `omx --madmax --high`
-6. Use `$deep-interview "..."` when the request or boundaries are still unclear
-7. Use `$ralplan "..."` to approve the plan and review tradeoffs
-8. Choose `$team` for coordinated parallel execution or `$ralph` for persistent completion loops
+6. Use `$brainstorm "..."` when the idea still needs design exploration
+7. Use `$deep-interview "..."` when the request or boundaries are still unclear
+8. Use `$ralplan "..."` to approve the plan and review tradeoffs
+9. Choose `$team` for coordinated parallel execution or `$ralph` for persistent completion loops
 
 ## Recommended workflow
 
-1. `$deep-interview` — clarify scope when the request or boundaries are still vague.
-2. `$ralplan` — turn that clarified scope into an approved architecture and implementation plan.
-3. `$team` or `$ralph` — use `$team` for coordinated parallel execution, or `$ralph` when you want a persistent completion loop with one owner.
+1. `$brainstorm` — explore design options and produce a reviewable design report when the idea is still vague.
+2. `$deep-interview` — clarify scope when the request or boundaries are still vague.
+3. `$ralplan` — turn the approved direction into an approved architecture and implementation plan.
+4. `$team` or `$ralph` — use `$team` for coordinated parallel execution, or `$ralph` when you want a persistent completion loop with one owner.
 
 ## Common in-session surfaces
 
 | Surface | Use it for |
 | --- | --- |
+| `$brainstorm "..."` | design exploration, option comparison, and reviewable design reports |
 | `$deep-interview "..."` | clarifying intent, boundaries, and non-goals |
 | `$ralplan "..."` | approving the implementation plan and tradeoffs |
 | `$ralph "..."` | persistent completion and verification loops |

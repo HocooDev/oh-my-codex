@@ -20,7 +20,7 @@ If `$code-review` is not clean, Autopilot returns to `$ralplan` with the review 
 </Use_When>
 
 <Do_Not_Use_When>
-- User wants to explore options or brainstorm -- use `$plan` / `$ralplan`
+- User wants to explore options or pre-plan the design direction -- use `$brainstorm` / `$plan` / `$ralplan`
 - User says "just explain", "draft only", or "what would you suggest" -- respond conversationally
 - User wants a single focused code change -- use `$ralph` or direct executor work
 - User wants only review/critique of existing code -- use `$code-review`

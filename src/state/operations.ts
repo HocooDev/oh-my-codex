@@ -28,6 +28,7 @@ import { isTrackedWorkflowMode } from './workflow-transition.js';
 import { reconcileWorkflowTransition } from './workflow-transition-reconcile.js';
 
 export const SUPPORTED_STATE_READ_MODES = [
+  'brainstorm',
   'autopilot',
   'autoresearch',
   'team',
