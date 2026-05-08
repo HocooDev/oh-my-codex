@@ -3,9 +3,13 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { slugifyMissionName } from "../autoresearch/contracts.js";
 import {
+	BRAINSTORM_ADVISOR_PROVIDERS,
 	BRAINSTORM_APPROVAL_STATES,
 	BRAINSTORM_NEXT_SKILLS,
 	type BrainstormApprovalState,
+	type BrainstormAdvisorProvider,
+	type BrainstormAdvisorRun,
+	type BrainstormAdvisorRuns,
 	type BrainstormArtifactRecord,
 	type BrainstormSelectedNextSkill,
 	readLatestBrainstormArtifact,
@@ -14,6 +18,9 @@ import {
 
 export type {
 	BrainstormApprovalState,
+	BrainstormAdvisorProvider,
+	BrainstormAdvisorRun,
+	BrainstormAdvisorRuns,
 	BrainstormSelectedNextSkill,
 } from "../planning/artifacts.js";
 export { readLatestBrainstormArtifactForSlug } from "../planning/artifacts.js";
@@ -53,16 +60,60 @@ export interface BrainstormArtifactDraft {
 	path: string;
 	content: string;
 	contextSnapshotPath: string;
+	artifactWrittenAt: string;
 	artifactStatus: "draft" | "approved";
 	approvalState: BrainstormApprovalState;
 	recommendedNextSkill: BrainstormRecommendedNextSkill;
 	selectedNextSkill: BrainstormSelectedNextSkill;
+	advisorRuns: BrainstormAdvisorRuns;
 }
 
 export interface BrainstormStatusResult {
 	selector: { slug: string | null; latest: boolean };
 	artifact: BrainstormArtifactRecord | null;
 	state: Record<string, unknown> | null;
+}
+
+function normalizeAdvisorRunValue(value: string | null | undefined): string | null {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : null;
+}
+
+function defaultAdvisorSummary(
+	provider: BrainstormAdvisorProvider,
+	enabled: boolean,
+): string | null {
+	if (!enabled) return "Advisor not requested.";
+	return `Advisor ${provider} requested, but no artifact was recorded yet.`;
+}
+
+export function normalizeBrainstormAdvisorRuns(
+	advisorFlags: BrainstormAdvisorFlags,
+	advisorRuns?: Partial<BrainstormAdvisorRuns> | null,
+): BrainstormAdvisorRuns {
+	const entries = BRAINSTORM_ADVISOR_PROVIDERS.map((provider) => {
+		const enabled =
+			provider === "claude"
+				? advisorFlags.withClaude
+				: advisorFlags.withGemini;
+		const current = advisorRuns?.[provider];
+		return [
+			provider,
+			{
+				enabled,
+				status: current?.status ?? (enabled ? "pending" : "skipped"),
+				artifactPath: normalizeAdvisorRunValue(current?.artifactPath),
+				exitCode:
+					typeof current?.exitCode === "number" ? current.exitCode : null,
+				summary:
+					normalizeAdvisorRunValue(current?.summary) ??
+					defaultAdvisorSummary(provider, enabled),
+				error: normalizeAdvisorRunValue(current?.error),
+			},
+		] as const satisfies readonly [BrainstormAdvisorProvider, BrainstormAdvisorRun];
+	});
+
+	return Object.fromEntries(entries) as BrainstormAdvisorRuns;
 }
 
 function normalizeMarkdown(content: string): string {
@@ -167,6 +218,15 @@ function localizedCopy(lang: ResolvedBrainstormLanguage): {
 	testing: string;
 	continueDecision: string;
 	stopDecision: string;
+	advisorSection: string;
+	advisorNotRequested: string;
+	advisorPending: string;
+	advisorSucceeded: string;
+	advisorFailed: string;
+	advisorArtifactLabel: string;
+	advisorSummaryLabel: string;
+	advisorErrorLabel: string;
+	advisorExitCodeLabel: string;
 } {
 	if (lang === "zh-CN" || lang === "zh-TW") {
 		return {
@@ -194,6 +254,15 @@ function localizedCopy(lang: ResolvedBrainstormLanguage): {
 				"- 校验 markdown 产物锚点与 `artifact:` 合约。\n- 校验状态文件与 markdown 中的审批字段一致。\n- 校验本命令不会自动创建 deep-interview / ralplan 运行态。",
 			continueDecision: "继续探索，暂不批准交接。",
 			stopDecision: "停止 / 暂不实现。",
+			advisorSection: "外部顾问输入",
+			advisorNotRequested: "未请求",
+			advisorPending: "已请求，但尚未记录顾问产物。",
+			advisorSucceeded: "成功",
+			advisorFailed: "失败",
+			advisorArtifactLabel: "顾问产物",
+			advisorSummaryLabel: "摘要",
+			advisorErrorLabel: "错误",
+			advisorExitCodeLabel: "退出码",
 		};
 	}
 
@@ -224,6 +293,15 @@ function localizedCopy(lang: ResolvedBrainstormLanguage): {
 			"- Validate markdown anchors and the `artifact:` contract.\n- Validate that state and markdown approval metadata stay aligned.\n- Validate that brainstorm does not auto-create deep-interview / ralplan runtime state.",
 		continueDecision: "Continue exploring before approval.",
 		stopDecision: "Stop / no implementation.",
+		advisorSection: "External Advisor Inputs",
+		advisorNotRequested: "Not requested",
+		advisorPending: "Requested, but no advisor artifact has been recorded yet.",
+		advisorSucceeded: "Succeeded",
+		advisorFailed: "Failed",
+		advisorArtifactLabel: "Artifact",
+		advisorSummaryLabel: "Summary",
+		advisorErrorLabel: "Error",
+		advisorExitCodeLabel: "Exit code",
 	};
 }
 
@@ -269,6 +347,65 @@ function suggestedNextCommand(
 		default:
 			return "No follow-up command approved.";
 	}
+}
+
+function artifactContractValue(value: string | number | null | undefined): string {
+	if (value == null) return "none";
+	const normalized = String(value).trim();
+	return normalized || "none";
+}
+
+function maybeRelativeOmxPath(repoRoot: string, path: string | null): string | null {
+	if (!path) return null;
+	if (
+		path.startsWith(".omx/") ||
+		path.startsWith("./.omx/") ||
+		(!path.includes("\\") && !path.includes(":"))
+	) {
+		return path.replace(/\\/g, "/").replace(/^\.\//, "");
+	}
+	return relativeOmxPath(repoRoot, path);
+}
+
+function localizedAdvisorStatus(
+	run: BrainstormAdvisorRun,
+	lang: ResolvedBrainstormLanguage,
+): string {
+	const copy = localizedCopy(lang);
+	if (!run.enabled) return copy.advisorNotRequested;
+	if (run.status === "succeeded") return copy.advisorSucceeded;
+	if (run.status === "failed") return copy.advisorFailed;
+	return copy.advisorPending;
+}
+
+function buildAdvisorSection(
+	compileTarget: BrainstormDraftCompileTarget,
+	advisorRuns: BrainstormAdvisorRuns,
+): string[] {
+	const copy = localizedCopy(compileTarget.lang);
+	const lines = [`## 17. ${copy.advisorSection}`];
+	for (const provider of BRAINSTORM_ADVISOR_PROVIDERS) {
+		const run = advisorRuns[provider];
+		const artifactPath = maybeRelativeOmxPath(
+			compileTarget.repoRoot,
+			run.artifactPath,
+		);
+		lines.push(`- ${provider}: ${localizedAdvisorStatus(run, compileTarget.lang)}`);
+		lines.push(
+			`  - ${copy.advisorArtifactLabel}: ${artifactPath ?? copy.advisorNotRequested}`,
+		);
+		lines.push(
+			`  - ${copy.advisorExitCodeLabel}: ${run.exitCode ?? copy.advisorNotRequested}`,
+		);
+		lines.push(
+			`  - ${copy.advisorSummaryLabel}: ${run.summary ?? copy.advisorNotRequested}`,
+		);
+		if (run.error) {
+			lines.push(`  - ${copy.advisorErrorLabel}: ${run.error}`);
+		}
+	}
+	lines.push("");
+	return lines;
 }
 
 function buildContextSnapshotContent(
@@ -364,6 +501,8 @@ function buildBrainstormReportContent(input: {
 	artifactPath: string;
 	contextSnapshotPath: string;
 	approvalState: BrainstormApprovalState;
+	artifactWrittenAt: string;
+	advisorRuns?: Partial<BrainstormAdvisorRuns> | null;
 }): string {
 	const { compileTarget, artifactPath, contextSnapshotPath, approvalState } =
 		input;
@@ -389,6 +528,10 @@ function buildBrainstormReportContent(input: {
 	const handoffDecision = approvalDecisionText(
 		approvalState,
 		compileTarget.lang,
+	);
+	const advisorRuns = normalizeBrainstormAdvisorRuns(
+		compileTarget.advisorFlags,
+		input.advisorRuns,
 	);
 
 	return [
@@ -449,6 +592,7 @@ function buildBrainstormReportContent(input: {
 		`Selected next skill: ${selectedNextSkill}`,
 		`Context snapshot path: ${contextRelativePath}`,
 		"",
+		...buildAdvisorSection(compileTarget, advisorRuns),
 		"artifact:",
 		"  type: brainstorm_design_report",
 		`  path: ${artifactRelativePath}`,
@@ -458,6 +602,22 @@ function buildBrainstormReportContent(input: {
 		`  approval_state: ${approvalState}`,
 		`  context_snapshot_path: ${contextRelativePath}`,
 		`  lang: ${compileTarget.lang}`,
+		`  artifact_written_at: ${input.artifactWrittenAt}`,
+		...BRAINSTORM_ADVISOR_PROVIDERS.flatMap((provider) => {
+			const run = advisorRuns[provider];
+			return [
+				`  advisor_${provider}_enabled: ${String(run.enabled)}`,
+				`  advisor_${provider}_status: ${run.status}`,
+				`  advisor_${provider}_artifact_path: ${artifactContractValue(
+					maybeRelativeOmxPath(compileTarget.repoRoot, run.artifactPath),
+				)}`,
+				`  advisor_${provider}_exit_code: ${artifactContractValue(
+					run.exitCode,
+				)}`,
+				`  advisor_${provider}_summary: ${artifactContractValue(run.summary)}`,
+				`  advisor_${provider}_error: ${artifactContractValue(run.error)}`,
+			];
+		}),
 		"",
 	].join("\n");
 }
@@ -471,6 +631,7 @@ export async function writeBrainstormArtifact(input: {
 	slug?: string;
 	lang?: BrainstormLanguage;
 	advisorFlags?: Partial<BrainstormAdvisorFlags>;
+	advisorRuns?: Partial<BrainstormAdvisorRuns> | null;
 	approvalState?: BrainstormApprovalState;
 	now?: Date;
 }): Promise<BrainstormArtifactDraft> {
@@ -500,6 +661,7 @@ export async function writeBrainstormArtifact(input: {
 	);
 	const approvalState = input.approvalState ?? "draft";
 	const nowStamp = compactUtcTimestamp(input.now);
+	const artifactWrittenAt = (input.now ?? new Date()).toISOString();
 	const latest = readLatestBrainstormArtifactForSlug(input.repoRoot, slug);
 	const artifactPath = shouldReuseArtifact(latest)
 		? latest!.path
@@ -511,18 +673,26 @@ export async function writeBrainstormArtifact(input: {
 		artifactPath,
 		contextSnapshotPath,
 		approvalState,
+		artifactWrittenAt,
+		advisorRuns: input.advisorRuns,
 	});
 	await writeFile(artifactPath, content, "utf-8");
+	const advisorRuns = normalizeBrainstormAdvisorRuns(
+		compileTarget.advisorFlags,
+		input.advisorRuns,
+	);
 
 	return {
 		compileTarget,
 		path: artifactPath,
 		content,
 		contextSnapshotPath,
+		artifactWrittenAt,
 		artifactStatus: artifactStatusForApprovalState(approvalState),
 		approvalState,
 		recommendedNextSkill: brainstormNextSkillForApprovalState(approvalState),
 		selectedNextSkill: selectedNextSkillForApprovalState(approvalState),
+		advisorRuns,
 	};
 }
 
@@ -537,16 +707,30 @@ function stateMatchesSelector(
 		typeof state.brainstorm_artifact_path === "string"
 			? state.brainstorm_artifact_path.replace(/\\/g, "/")
 			: "";
+	const stateArtifactWrittenAt =
+		typeof state.artifact_written_at === "string"
+			? state.artifact_written_at.trim()
+			: "";
+	const artifactWrittenAt = artifact?.artifactWrittenAt?.trim() ?? "";
 	if (selector.slug) {
 		if (artifact && stateArtifactPath) {
-			return stateArtifactPath === artifact.path.replace(/\\/g, "/");
+			return (
+				stateArtifactPath === artifact.path.replace(/\\/g, "/") &&
+				(!artifactWrittenAt ||
+					!stateArtifactWrittenAt ||
+					stateArtifactWrittenAt === artifactWrittenAt)
+			);
 		}
 		return stateSlug === selector.slug;
 	}
 	if (artifact) {
 		return (
-			stateArtifactPath === artifact.path.replace(/\\/g, "/") ||
+			((stateArtifactPath === artifact.path.replace(/\\/g, "/") &&
+				(!artifactWrittenAt ||
+					!stateArtifactWrittenAt ||
+					stateArtifactWrittenAt === artifactWrittenAt)) ||
 			(!stateArtifactPath && stateSlug === artifact.slug)
+			)
 		);
 	}
 	return true;

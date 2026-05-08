@@ -12,10 +12,12 @@ import {
 	runBrainstormNoviceBridge,
 } from "../brainstorm-guided.js";
 import {
+	type BrainstormAdvisorRuns,
 	readLatestBrainstormArtifactForSlug,
 	resolveBrainstormStatus,
 	writeBrainstormArtifact,
 } from "../brainstorm-intake.js";
+import type { ProviderAdvisorExecutionResult } from "../provider-advisor.js";
 
 async function initWorkspace(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "omx-brainstorm-guided-test-"));
@@ -111,6 +113,45 @@ function makeFakeStructuredQuestionAsker(
 				source: input.source,
 			},
 			answer,
+		};
+	};
+}
+
+function makeAdvisorRunner(
+	runs: Partial<Record<"claude" | "gemini", Partial<ProviderAdvisorExecutionResult>>>,
+) {
+	return async ({
+		provider,
+		prompt,
+		originalTask,
+		repoRoot,
+	}: {
+		provider: "claude" | "gemini";
+		prompt: string;
+		originalTask: string;
+		repoRoot: string;
+	}): Promise<ProviderAdvisorExecutionResult> => {
+		const override = runs[provider];
+		if (!override) {
+			throw new Error(`Missing test advisor result for ${provider}`);
+		}
+		const artifactPath =
+			override.artifactPath ?? join(repoRoot, ".omx", "artifacts", `ask-${provider}-test.md`);
+		await mkdir(join(repoRoot, ".omx", "artifacts"), { recursive: true });
+		await writeFile(artifactPath, `# ${provider} artifact\n\n${prompt}\n`, "utf-8");
+		return {
+			provider,
+			binary: provider,
+			prompt,
+			originalTask,
+			artifactPath,
+			createdAt: "2026-05-08T00:00:00.000Z",
+			status: override.status ?? "succeeded",
+			exitCode: override.exitCode ?? (override.status === "failed" ? 1 : 0),
+			rawOutput: override.rawOutput ?? `${provider.toUpperCase()} RESULT`,
+			summary: override.summary ?? `${provider} summary`,
+			actionItems: override.actionItems ?? [],
+			errorMessage: override.errorMessage ?? null,
 		};
 	};
 }
@@ -355,6 +396,173 @@ describe("brainstorm guided runtime", () => {
 		}
 	});
 
+	it("records successful advisor artifacts in brainstorm state and markdown", async () => {
+		const repo = await initWorkspace();
+		try {
+			const result = await createSeededBrainstormDraft(
+				repo,
+				{
+					idea: "Seed with advisors",
+					slug: "seed-with-advisors",
+					lang: "en",
+					withClaude: true,
+					withGemini: true,
+				},
+				makeAdvisorRunner({
+					claude: {
+						status: "succeeded",
+						summary: "Claude recommended the safer migration path.",
+					},
+					gemini: {
+						status: "succeeded",
+						summary: "Gemini highlighted rollout risks and observability needs.",
+					},
+				}),
+			);
+
+			assert.equal(result.advisorRuns.claude.status, "succeeded");
+			assert.equal(result.advisorRuns.gemini.status, "succeeded");
+			assert.match(
+				result.advisorRuns.claude.artifactPath ?? "",
+				/ask-claude-test\.md$/,
+			);
+			const content = await readFile(result.brainstormArtifactPath, "utf-8");
+			assert.match(content, /## 17\. External Advisor Inputs/);
+			assert.match(content, /advisor_claude_status: succeeded/);
+			assert.match(content, /advisor_gemini_status: succeeded/);
+			assert.match(content, /ask-claude-test\.md/);
+			assert.match(content, /ask-gemini-test\.md/);
+
+			const state = JSON.parse(
+				await readFile(
+					join(repo, ".omx", "state", "brainstorm-state.json"),
+					"utf-8",
+				),
+			) as Record<string, unknown> & { advisor_runs?: BrainstormAdvisorRuns };
+			assert.equal(state.advisor_runs?.claude.status, "succeeded");
+			assert.equal(state.advisor_runs?.gemini.status, "succeeded");
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("degrades gracefully when an enabled advisor fails", async () => {
+		const repo = await initWorkspace();
+		try {
+			const result = await withMockedTty(() =>
+				runBrainstormNoviceBridge(
+					repo,
+					{
+						idea: "Advisor failure tolerance",
+						lang: "en",
+						withClaude: true,
+					},
+					makeFakeIo(["", "", "Keep the draft usable", "", "", "1"]),
+					undefined,
+					makeAdvisorRunner({
+						claude: {
+							status: "failed",
+							exitCode: 9,
+							summary: "Provider command failed (exit 9): auth missing",
+							errorMessage: "auth missing",
+						},
+					}),
+				),
+			);
+
+			assert.equal(result.approvalState, "continue_exploring");
+			assert.equal(result.advisorRuns.claude.status, "failed");
+			const content = await readFile(result.brainstormArtifactPath, "utf-8");
+			assert.match(content, /advisor_claude_status: failed/);
+			assert.match(content, /advisor_claude_exit_code: 9/);
+			assert.match(content, /advisor_claude_error: auth missing/);
+
+			const state = JSON.parse(
+				await readFile(
+					join(repo, ".omx", "state", "brainstorm-state.json"),
+					"utf-8",
+				),
+			) as Record<string, unknown> & { advisor_runs?: BrainstormAdvisorRuns };
+			assert.equal(state.current_phase, "completed");
+			assert.equal(state.advisor_runs?.claude.status, "failed");
+			assert.equal(state.advisor_runs?.claude.exitCode, 9);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("marks enabled advisors as pending while the runtime is waiting for advisor results", async () => {
+		const repo = await initWorkspace();
+		let resolveAdvisor = () => {};
+		const releaseAdvisor = new Promise<void>((resolve) => {
+			resolveAdvisor = resolve;
+		});
+		try {
+			const runPromise = withMockedTty(() =>
+				runBrainstormNoviceBridge(
+					repo,
+					{
+						idea: "Wait for advisor",
+						lang: "en",
+						withClaude: true,
+					},
+					makeFakeIo(["", "", "Keep it reviewable", "", "", "1"]),
+					undefined,
+					async ({ provider, prompt, originalTask, repoRoot }) => {
+						await releaseAdvisor;
+						const artifactPath = join(
+							repoRoot,
+							".omx",
+							"artifacts",
+							`ask-${provider}-pending-test.md`,
+						);
+						await mkdir(join(repoRoot, ".omx", "artifacts"), {
+							recursive: true,
+						});
+						await writeFile(artifactPath, prompt, "utf-8");
+						return {
+							provider,
+							binary: provider,
+							prompt,
+							originalTask,
+							artifactPath,
+							createdAt: "2026-05-08T00:00:00.000Z",
+							status: "succeeded",
+							exitCode: 0,
+							rawOutput: "OK",
+							summary: "Advisor finished.",
+							actionItems: [],
+							errorMessage: null,
+						};
+					},
+				),
+			);
+
+			for (let index = 0; index < 50; index += 1) {
+				if (existsSync(join(repo, ".omx", "state", "brainstorm-state.json"))) {
+					const state = JSON.parse(
+						await readFile(
+							join(repo, ".omx", "state", "brainstorm-state.json"),
+							"utf-8",
+						),
+					) as Record<string, unknown> & { advisor_runs?: BrainstormAdvisorRuns };
+					if (state.current_phase === "running_advisors") {
+						assert.equal(state.advisor_runs?.claude.status, "pending");
+						break;
+					}
+				}
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+
+			resolveAdvisor();
+			const result = await runPromise;
+			assert.equal(result.advisorRuns.claude.status, "succeeded");
+		} finally {
+			resolveAdvisor();
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
 	it("selects the latest brainstorm artifact for a slug and pairs it with brainstorm state", async () => {
 		const repo = await initWorkspace();
 		try {
@@ -444,6 +652,57 @@ describe("brainstorm guided runtime", () => {
 
 			const status = await resolveBrainstormStatus(repo, { slug: "search-ux" });
 			assert.equal(status.artifact?.path, newer.path);
+			assert.equal(status.state, null);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("does not pair a rewritten draft artifact with stale state from an older artifact revision", async () => {
+		const repo = await initWorkspace();
+		try {
+			const older = await writeBrainstormArtifact({
+				repoRoot: repo,
+				idea: "Review search UX",
+				slug: "search-ux",
+				lang: "en",
+				approvalState: "draft",
+				now: new Date("2026-05-08T01:02:03.000Z"),
+			});
+			const newer = await writeBrainstormArtifact({
+				repoRoot: repo,
+				idea: "Review search UX",
+				slug: "search-ux",
+				lang: "en",
+				approvalState: "draft",
+				now: new Date("2026-05-08T01:02:04.000Z"),
+			});
+
+			assert.equal(older.path, newer.path);
+			assert.notEqual(older.artifactWrittenAt, newer.artifactWrittenAt);
+
+			await mkdir(join(repo, ".omx", "state"), { recursive: true });
+			await writeFile(
+				join(repo, ".omx", "state", "brainstorm-state.json"),
+				JSON.stringify(
+					{
+						active: false,
+						mode: "brainstorm",
+						current_phase: "completed",
+						approval_state: "draft",
+						slug: "search-ux",
+						brainstorm_artifact_path: older.path,
+						artifact_written_at: older.artifactWrittenAt,
+					},
+					null,
+					2,
+				),
+				"utf-8",
+			);
+
+			const status = await resolveBrainstormStatus(repo, { slug: "search-ux" });
+			assert.equal(status.artifact?.path, newer.path);
+			assert.equal(status.artifact?.artifactWrittenAt, newer.artifactWrittenAt);
 			assert.equal(status.state, null);
 		} finally {
 			await rm(repo, { recursive: true, force: true });

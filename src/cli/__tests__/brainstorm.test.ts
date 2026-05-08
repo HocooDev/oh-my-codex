@@ -181,6 +181,24 @@ describe("brainstorm CLI surface", () => {
 						approval_state: "approved_for_ralplan",
 						recommended_next_skill: "ralplan",
 						selected_next_skill: "ralplan",
+						advisor_runs: {
+							claude: {
+								enabled: true,
+								status: "failed",
+								artifactPath: null,
+								exitCode: 7,
+								summary: "Provider command failed (exit 7): auth missing",
+								error: "auth missing",
+							},
+							gemini: {
+								enabled: false,
+								status: "skipped",
+								artifactPath: null,
+								exitCode: null,
+								summary: "Advisor not requested.",
+								error: null,
+							},
+						},
 					},
 					null,
 					2,
@@ -200,10 +218,12 @@ describe("brainstorm CLI surface", () => {
 			assert.equal(parsedBySlug.artifact.slug, "search-ux");
 			assert.equal(parsedBySlug.artifact.approvalState, "approved_for_ralplan");
 			assert.equal(parsedBySlug.state.selected_next_skill, "ralplan");
+			assert.equal(parsedBySlug.state.advisor_runs.claude.status, "failed");
 
 			const latest = runOmx(cwd, ["brainstorm", "status", "--latest"]);
 			assert.equal(latest.status, 0, latest.stderr || latest.stdout);
 			assert.match(latest.stdout, /Brainstorm status: approved_for_ralplan/);
+			assert.match(latest.stdout, /Advisor claude: failed/);
 			assert.equal(
 				existsSync(join(cwd, ".omx", "state", "deep-interview-state.json")),
 				false,

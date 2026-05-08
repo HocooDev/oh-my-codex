@@ -11,6 +11,9 @@ import type { QuestionType } from "../question/types.js";
 import {
 	BRAINSTORM_LANGS,
 	type BrainstormApprovalState,
+	type BrainstormAdvisorProvider,
+	type BrainstormAdvisorRun,
+	type BrainstormAdvisorRuns,
 	type BrainstormLanguage,
 	type BrainstormRecommendedNextSkill,
 	type BrainstormSeedInputs,
@@ -19,6 +22,12 @@ import {
 	resolveBrainstormLanguage,
 	writeBrainstormArtifact,
 } from "./brainstorm-intake.js";
+import {
+	executeProviderAdvisor,
+	PROVIDER_ADVISORS,
+	type ProviderAdvisorExecutionResult,
+	type ProviderAdvisorName,
+} from "./provider-advisor.js";
 
 export interface InitBrainstormOptions {
 	idea: string;
@@ -37,7 +46,15 @@ export interface InitBrainstormResult {
 	approvalState: BrainstormApprovalState;
 	recommendedNextSkill: BrainstormRecommendedNextSkill;
 	selectedNextSkill: BrainstormSelectedNextSkill;
+	advisorRuns: BrainstormAdvisorRuns;
 }
+
+type BrainstormAdvisorRunner = (input: {
+	provider: ProviderAdvisorName;
+	prompt: string;
+	originalTask: string;
+	repoRoot: string;
+}) => Promise<ProviderAdvisorExecutionResult>;
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -417,9 +434,169 @@ export function parseInitArgs(
 	return result;
 }
 
+function brainstormAdvisorPrompt(input: {
+	provider: ProviderAdvisorName;
+	idea: string;
+	desiredOutcome: string;
+	constraints: string;
+	openQuestions: string;
+	lang: ResolvedBrainstormLanguage;
+}): string {
+	return [
+		"You are an external design advisor for an OMX brainstorm artifact.",
+		"",
+		`Provider lane: ${input.provider}`,
+		`Target output language: ${input.lang}`,
+		"",
+		"Task idea:",
+		input.idea,
+		"",
+		"Desired outcome:",
+		input.desiredOutcome,
+		"",
+		"Constraints:",
+		input.constraints || "None recorded yet.",
+		"",
+		"Open questions:",
+		input.openQuestions || "None recorded yet.",
+		"",
+		"Respond with concise design guidance only:",
+		"1. Two or three candidate directions",
+		"2. Key trade-offs",
+		"3. Risks or unresolved questions",
+		"4. A recommended direction",
+		"",
+		"Do not implement code.",
+		"Do not create a final execution plan.",
+		"Keep the response short enough to quote or summarize inside a markdown artifact.",
+	].join("\n");
+}
+
+function advisorRunFromExecutionResult(
+	result: ProviderAdvisorExecutionResult,
+): BrainstormAdvisorRun {
+	return {
+		enabled: true,
+		status: result.status,
+		artifactPath: result.artifactPath,
+		exitCode: result.exitCode,
+		summary: result.summary,
+		error: result.errorMessage,
+	};
+}
+
+function failedAdvisorRun(
+	provider: BrainstormAdvisorProvider,
+	error: unknown,
+): BrainstormAdvisorRun {
+	const message = errorMessage(error);
+	return {
+		enabled: true,
+		status: "failed",
+		artifactPath: null,
+		exitCode: null,
+		summary: `Advisor ${provider} failed before producing an artifact.`,
+		error: message,
+	};
+}
+
+async function runBrainstormAdvisors(
+	repoRoot: string,
+	input: {
+		idea: string;
+		desiredOutcome: string;
+		constraints: string;
+		openQuestions: string;
+		lang: ResolvedBrainstormLanguage;
+		withClaude: boolean;
+		withGemini: boolean;
+	},
+	advisorRunner: BrainstormAdvisorRunner,
+): Promise<BrainstormAdvisorRuns> {
+	const requestedProviders = PROVIDER_ADVISORS.filter((provider) =>
+		provider === "claude" ? input.withClaude : input.withGemini,
+	);
+
+	const entries = await Promise.all(
+		requestedProviders.map(async (provider) => {
+			try {
+				const result = await advisorRunner({
+					provider,
+					prompt: brainstormAdvisorPrompt({
+						provider,
+						idea: input.idea,
+						desiredOutcome: input.desiredOutcome,
+						constraints: input.constraints,
+						openQuestions: input.openQuestions,
+						lang: input.lang,
+					}),
+					originalTask: input.idea,
+					repoRoot,
+				});
+				if (result.status === "failed") {
+					console.warn(
+						`[omx] warning: brainstorm advisor ${provider} failed and the runtime will continue (${result.summary}).`,
+					);
+				}
+				return [provider, advisorRunFromExecutionResult(result)] as const;
+			} catch (error) {
+				const failed = failedAdvisorRun(provider, error);
+				console.warn(
+					`[omx] warning: brainstorm advisor ${provider} failed and the runtime will continue (${failed.error ?? failed.summary}).`,
+				);
+				return [provider, failed] as const;
+			}
+		}),
+	);
+
+	const fallbackRuns = {
+		claude: input.withClaude
+			? failedAdvisorRun("claude", "Advisor execution did not produce a result.")
+			: {
+					enabled: false,
+					status: "skipped" as const,
+					artifactPath: null,
+					exitCode: null,
+					summary: "Advisor not requested.",
+					error: null,
+				},
+		gemini: input.withGemini
+			? failedAdvisorRun("gemini", "Advisor execution did not produce a result.")
+			: {
+					enabled: false,
+					status: "skipped" as const,
+					artifactPath: null,
+					exitCode: null,
+					summary: "Advisor not requested.",
+					error: null,
+				},
+	} satisfies BrainstormAdvisorRuns;
+
+	for (const [provider, run] of entries) {
+		fallbackRuns[provider] = run;
+	}
+
+	return fallbackRuns;
+}
+
+async function defaultBrainstormAdvisorRunner(input: {
+	provider: ProviderAdvisorName;
+	prompt: string;
+	originalTask: string;
+	repoRoot: string;
+}): Promise<ProviderAdvisorExecutionResult> {
+	return executeProviderAdvisor({
+		provider: input.provider,
+		prompt: input.prompt,
+		originalTask: input.originalTask,
+		cwd: input.repoRoot,
+	});
+}
+
 export async function createSeededBrainstormDraft(
 	repoRoot: string,
 	seedInputs: BrainstormSeedInputs,
+	advisorRunner: BrainstormAdvisorRunner = defaultBrainstormAdvisorRunner,
 ): Promise<InitBrainstormResult> {
 	const idea = seedInputs.idea?.trim() || "";
 	if (!idea) {
@@ -427,7 +604,7 @@ export async function createSeededBrainstormDraft(
 	}
 
 	const slug = slugifyMissionName(seedInputs.slug?.trim() || idea);
-	const draft = await writeBrainstormArtifact({
+	const initialDraft = await writeBrainstormArtifact({
 		repoRoot,
 		idea,
 		slug,
@@ -436,6 +613,31 @@ export async function createSeededBrainstormDraft(
 			withClaude: seedInputs.withClaude === true,
 			withGemini: seedInputs.withGemini === true,
 		},
+		approvalState: "draft",
+	});
+	const advisorRuns = await runBrainstormAdvisors(
+		repoRoot,
+		{
+			idea,
+			desiredOutcome: initialDraft.compileTarget.desiredOutcome,
+			constraints: initialDraft.compileTarget.constraints,
+			openQuestions: initialDraft.compileTarget.openQuestions,
+			lang: initialDraft.compileTarget.lang,
+			withClaude: initialDraft.compileTarget.advisorFlags.withClaude,
+			withGemini: initialDraft.compileTarget.advisorFlags.withGemini,
+		},
+		advisorRunner,
+	);
+	const draft = await writeBrainstormArtifact({
+		repoRoot,
+		idea,
+		slug: initialDraft.compileTarget.slug,
+		lang: initialDraft.compileTarget.lang,
+		desiredOutcome: initialDraft.compileTarget.desiredOutcome,
+		constraints: initialDraft.compileTarget.constraints,
+		openQuestions: initialDraft.compileTarget.openQuestions,
+		advisorFlags: initialDraft.compileTarget.advisorFlags,
+		advisorRuns,
 		approvalState: "draft",
 	});
 
@@ -450,8 +652,10 @@ export async function createSeededBrainstormDraft(
 				slug: draft.compileTarget.slug,
 				context_snapshot_path: draft.contextSnapshotPath,
 				brainstorm_artifact_path: draft.path,
+				artifact_written_at: draft.artifactWrittenAt,
 				lang: draft.compileTarget.lang,
 				advisor_flags: draft.compileTarget.advisorFlags,
+				advisor_runs: draft.advisorRuns,
 				recommended_next_skill: draft.recommendedNextSkill,
 				selected_next_skill: draft.selectedNextSkill,
 				approval_state: draft.approvalState,
@@ -470,6 +674,7 @@ export async function createSeededBrainstormDraft(
 		approvalState: draft.approvalState,
 		recommendedNextSkill: draft.recommendedNextSkill,
 		selectedNextSkill: draft.selectedNextSkill,
+		advisorRuns: draft.advisorRuns,
 	};
 }
 
@@ -478,6 +683,7 @@ export async function runBrainstormNoviceBridge(
 	seedInputs: BrainstormSeedInputs = {},
 	io: BrainstormQuestionIO = createQuestionIO(),
 	structuredQuestion?: BrainstormStructuredQuestionAsker,
+	advisorRunner: BrainstormAdvisorRunner = defaultBrainstormAdvisorRunner,
 ): Promise<InitBrainstormResult> {
 	if (!process.stdin.isTTY) {
 		throw new Error(
@@ -491,6 +697,7 @@ export async function runBrainstormNoviceBridge(
 	let constraints = "";
 	let openQuestions = "";
 	let modeActivated = false;
+	let advisorRuns: BrainstormAdvisorRuns | undefined;
 	const advisorFlags = {
 		withClaude: seedInputs.withClaude === true,
 		withGemini: seedInputs.withGemini === true,
@@ -553,7 +760,7 @@ export async function runBrainstormNoviceBridge(
 		);
 
 		const slug = slugifyMissionName(seedInputs.slug?.trim() || idea);
-		const draft = await writeBrainstormArtifact({
+		const initialDraft = await writeBrainstormArtifact({
 			repoRoot,
 			idea,
 			desiredOutcome,
@@ -572,12 +779,17 @@ export async function runBrainstormNoviceBridge(
 				{
 					active: true,
 					iteration: 1,
-					current_phase: "awaiting_confirmation",
-					slug: draft.compileTarget.slug,
-					context_snapshot_path: draft.contextSnapshotPath,
-					brainstorm_artifact_path: draft.path,
-					lang: draft.compileTarget.lang,
+					current_phase:
+						advisorFlags.withClaude || advisorFlags.withGemini
+							? "running_advisors"
+							: "awaiting_confirmation",
+					slug: initialDraft.compileTarget.slug,
+					context_snapshot_path: initialDraft.contextSnapshotPath,
+					brainstorm_artifact_path: initialDraft.path,
+					artifact_written_at: initialDraft.artifactWrittenAt,
+					lang: initialDraft.compileTarget.lang,
 					advisor_flags: advisorFlags,
+					advisor_runs: initialDraft.advisorRuns,
 					recommended_next_skill: "none",
 					selected_next_skill: "none",
 					approval_state: "draft",
@@ -586,6 +798,53 @@ export async function runBrainstormNoviceBridge(
 			);
 		});
 		modeActivated = true;
+
+		advisorRuns = await runBrainstormAdvisors(
+			repoRoot,
+			{
+				idea,
+				desiredOutcome: initialDraft.compileTarget.desiredOutcome,
+				constraints: initialDraft.compileTarget.constraints,
+				openQuestions: initialDraft.compileTarget.openQuestions,
+				lang: initialDraft.compileTarget.lang,
+				withClaude: advisorFlags.withClaude,
+				withGemini: advisorFlags.withGemini,
+			},
+			advisorRunner,
+		);
+		const draft = await writeBrainstormArtifact({
+			repoRoot,
+			idea,
+			desiredOutcome: initialDraft.compileTarget.desiredOutcome,
+			constraints: initialDraft.compileTarget.constraints,
+			openQuestions: initialDraft.compileTarget.openQuestions,
+			slug: initialDraft.compileTarget.slug,
+			lang: initialDraft.compileTarget.lang,
+			advisorFlags,
+			advisorRuns,
+			approvalState: "draft",
+		});
+		await withRepoLocalStateRoot(async () => {
+			await updateModeState(
+				"brainstorm",
+				{
+					active: true,
+					iteration: 1,
+					current_phase: "awaiting_confirmation",
+					slug: draft.compileTarget.slug,
+					context_snapshot_path: draft.contextSnapshotPath,
+					brainstorm_artifact_path: draft.path,
+					artifact_written_at: draft.artifactWrittenAt,
+					lang: draft.compileTarget.lang,
+					advisor_flags: advisorFlags,
+					advisor_runs: advisorRuns,
+					recommended_next_skill: "none",
+					selected_next_skill: "none",
+					approval_state: "draft",
+				},
+				repoRoot,
+			);
+		});
 
 		console.log(`\nDraft saved: ${draft.path}`);
 
@@ -604,6 +863,7 @@ export async function runBrainstormNoviceBridge(
 			slug: draft.compileTarget.slug,
 			lang,
 			advisorFlags,
+			advisorRuns,
 			approvalState,
 		});
 
@@ -617,8 +877,10 @@ export async function runBrainstormNoviceBridge(
 					slug: finalized.compileTarget.slug,
 					context_snapshot_path: finalized.contextSnapshotPath,
 					brainstorm_artifact_path: finalized.path,
+					artifact_written_at: finalized.artifactWrittenAt,
 					lang: finalized.compileTarget.lang,
 					advisor_flags: advisorFlags,
+					advisor_runs: finalized.advisorRuns,
 					recommended_next_skill: finalized.recommendedNextSkill,
 					selected_next_skill: finalized.selectedNextSkill,
 					approval_state: finalized.approvalState,
@@ -637,6 +899,7 @@ export async function runBrainstormNoviceBridge(
 			approvalState: finalized.approvalState,
 			recommendedNextSkill: finalized.recommendedNextSkill,
 			selectedNextSkill: finalized.selectedNextSkill,
+			advisorRuns: finalized.advisorRuns,
 		};
 	} catch (error) {
 		if (modeActivated) {

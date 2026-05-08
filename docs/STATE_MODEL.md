@@ -30,11 +30,22 @@ For the guided brainstorm CLI runtime, `brainstorm-state.json` may also persist 
 - `slug`
 - `context_snapshot_path`
 - `brainstorm_artifact_path`
+- `artifact_written_at`
 - `lang`
 - `advisor_flags`
+- `advisor_runs`
 - `recommended_next_skill`
 - `selected_next_skill`
 - `approval_state` (`draft`, `continue_exploring`, `approved_for_deep_interview`, `approved_for_ralplan`, `stopped`)
+
+When external advisors are enabled, `advisor_runs` records one stable entry per provider (`claude`, `gemini`) with:
+
+- `enabled`
+- `status` (`skipped`, `succeeded`, `failed`)
+- `artifactPath`
+- `exitCode`
+- `summary`
+- `error`
 
 These files determine whether a workflow mode is active, completed, cancelled, or failed. Those mode phases are not always identical to the user-facing terminal lifecycle vocabulary; see the explicit terminal lifecycle section below for that compatibility boundary.
 

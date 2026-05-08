@@ -5,6 +5,7 @@ import {
 	parseInitArgs,
 } from "./brainstorm-guided.js";
 import {
+	type BrainstormAdvisorRuns,
 	type BrainstormLanguage,
 	type BrainstormStatusResult,
 	resolveBrainstormStatus,
@@ -21,6 +22,8 @@ Usage:
 Notes:
   - \`omx brainstorm\` and \`omx brainstorm init\` are equivalent guided-entry forms.
   - This runtime writes/reuses brainstorm context + markdown artifacts and records handoff metadata only.
+  - \`--with-claude\` / \`--with-gemini\` run the corresponding local advisor CLI and save \`.omx/artifacts/ask-<provider>-...\` evidence.
+  - Advisor failures are recorded and downgraded to warnings; they do not abort the brainstorm draft.
   - It does not auto-launch \`$deep-interview\`, \`$ralplan\`, \`$ralph\`, or \`$team\`.
 `;
 
@@ -38,6 +41,18 @@ export interface ParsedBrainstormStatusArgs {
 	latest: boolean;
 	json: boolean;
 	help?: boolean;
+}
+
+function printAdvisorRuns(advisorRuns: BrainstormAdvisorRuns | undefined): void {
+	if (!advisorRuns) return;
+	for (const [provider, run] of Object.entries(advisorRuns)) {
+		console.log(
+			`Advisor ${provider}: ${run.status}${run.artifactPath ? ` (${run.artifactPath})` : ""}`,
+		);
+		if (run.error) {
+			console.log(`Advisor ${provider} error: ${run.error}`);
+		}
+	}
 }
 
 function shouldShowHelp(args: readonly string[]): boolean {
@@ -148,6 +163,11 @@ function printHumanStatus(status: BrainstormStatusResult): void {
 		console.log(`State path: .omx/state/brainstorm-state.json`);
 		console.log(`Mode phase: ${String(state.current_phase ?? "unknown")}`);
 	}
+	const advisorRuns =
+		(state?.advisor_runs as BrainstormAdvisorRuns | undefined) ??
+		artifact?.advisorRuns ??
+		undefined;
+	printAdvisorRuns(advisorRuns);
 }
 
 function normalizeSeedArgs(
@@ -214,6 +234,7 @@ export async function brainstormCommand(args: string[]): Promise<void> {
 		console.log(`Brainstorm artifact: ${result.brainstormArtifactPath}`);
 		console.log(`Approval state: ${result.approvalState}`);
 		console.log(`Selected next skill: ${result.selectedNextSkill}`);
+		printAdvisorRuns(result.advisorRuns);
 		console.log("No downstream workflow was auto-launched.");
 		return;
 	}
@@ -225,5 +246,6 @@ export async function brainstormCommand(args: string[]): Promise<void> {
 	console.log(`Brainstorm artifact: ${result.brainstormArtifactPath}`);
 	console.log(`Approval state: ${result.approvalState}`);
 	console.log(`Selected next skill: ${result.selectedNextSkill}`);
+	printAdvisorRuns(result.advisorRuns);
 	console.log("No downstream workflow was auto-launched.");
 }

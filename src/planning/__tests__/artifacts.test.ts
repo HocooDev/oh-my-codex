@@ -129,6 +129,57 @@ describe('planning artifacts', () => {
     assert.deepEqual(artifact?.missingAnchors, []);
   });
 
+  it('parses advisor metadata from the brainstorm artifact contract', async () => {
+    const specsDir = join(tempDir, '.omx', 'specs');
+    await mkdir(specsDir, { recursive: true });
+    const reportPath = join(specsDir, 'brainstorm-20260508T020304Z-advisors.md');
+    await writeFile(
+      reportPath,
+      [
+        '# Brainstorm Report: Advisors',
+        '',
+        '## 9. Recommendation',
+        'Approved recommendation: Use the safer rollout path',
+        '',
+        '## 15. Ralplan Handoff',
+        'Suggested next command: $ralplan --from-design .omx/specs/brainstorm-20260508T020304Z-advisors.md "Plan the safer rollout path"',
+        '',
+        '## 16. Handoff Decision',
+        'Handoff Decision: Proceed to planning',
+        '',
+        'artifact:',
+        '  type: brainstorm_design_report',
+        '  path: .omx/specs/brainstorm-20260508T020304Z-advisors.md',
+        '  status: approved',
+        '  recommended_next_skill: ralplan',
+        '  advisor_claude_enabled: true',
+        '  advisor_claude_status: failed',
+        '  advisor_claude_artifact_path: .omx/artifacts/ask-claude-advisors-2026-05-08T00-00-00-000Z.md',
+        '  advisor_claude_exit_code: 7',
+        '  advisor_claude_summary: Provider command failed (exit 7): auth missing',
+        '  advisor_claude_error: auth missing',
+        '  advisor_gemini_enabled: false',
+        '  advisor_gemini_status: skipped',
+        '  advisor_gemini_artifact_path: none',
+        '  advisor_gemini_exit_code: none',
+        '  advisor_gemini_summary: Advisor not requested.',
+        '  advisor_gemini_error: none',
+        '',
+      ].join('\n'),
+    );
+
+    const artifact = readBrainstormArtifact(reportPath, tempDir);
+    assert.ok(artifact?.advisorRuns);
+    assert.equal(artifact?.advisorRuns?.claude.status, 'failed');
+    assert.equal(artifact?.advisorRuns?.claude.exitCode, 7);
+    assert.equal(
+      artifact?.advisorRuns?.claude.artifactPath,
+      '.omx/artifacts/ask-claude-advisors-2026-05-08T00-00-00-000Z.md',
+    );
+    assert.equal(artifact?.advisorRuns?.gemini.enabled, false);
+    assert.equal(artifact?.advisorRuns?.gemini.artifactPath, null);
+  });
+
   it('reports missing brainstorm handoff anchors explicitly', async () => {
     const specsDir = join(tempDir, '.omx', 'specs');
     await mkdir(specsDir, { recursive: true });

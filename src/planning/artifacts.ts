@@ -29,6 +29,23 @@ export const BRAINSTORM_APPROVAL_STATES = [
 ] as const;
 export type BrainstormApprovalState = (typeof BRAINSTORM_APPROVAL_STATES)[number];
 
+export const BRAINSTORM_ADVISOR_PROVIDERS = ['claude', 'gemini'] as const;
+export type BrainstormAdvisorProvider = (typeof BRAINSTORM_ADVISOR_PROVIDERS)[number];
+
+export const BRAINSTORM_ADVISOR_RUN_STATUSES = ['pending', 'skipped', 'succeeded', 'failed'] as const;
+export type BrainstormAdvisorRunStatus = (typeof BRAINSTORM_ADVISOR_RUN_STATUSES)[number];
+
+export interface BrainstormAdvisorRun {
+  enabled: boolean;
+  status: BrainstormAdvisorRunStatus;
+  artifactPath: string | null;
+  exitCode: number | null;
+  summary: string | null;
+  error: string | null;
+}
+
+export type BrainstormAdvisorRuns = Record<BrainstormAdvisorProvider, BrainstormAdvisorRun>;
+
 export interface PlanningArtifacts {
   plansDir: string;
   specsDir: string;
@@ -106,6 +123,8 @@ export interface BrainstormArtifactRecord {
   approvalState: BrainstormApprovalState | null;
   contextSnapshotPath: string | null;
   lang: string | null;
+  artifactWrittenAt: string | null;
+  advisorRuns: BrainstormAdvisorRuns | null;
   missingAnchors: string[];
 }
 
@@ -158,6 +177,8 @@ function parseArtifactContract(content: string): {
   approvalState: BrainstormApprovalState | null;
   contextSnapshotPath: string | null;
   lang: string | null;
+  artifactWrittenAt: string | null;
+  advisorRuns: BrainstormAdvisorRuns | null;
 } {
   const lines = normalizeMarkdown(content).split('\n');
   const start = lines.findIndex((line) => /^artifact:\s*$/i.test(line.trim()));
@@ -171,6 +192,8 @@ function parseArtifactContract(content: string): {
       approvalState: null,
       contextSnapshotPath: null,
       lang: null,
+      artifactWrittenAt: null,
+      advisorRuns: null,
     };
   }
 
@@ -187,6 +210,7 @@ function parseArtifactContract(content: string): {
   const recommendedNextSkill = values.recommended_next_skill?.trim().toLowerCase() ?? null;
   const selectedNextSkill = values.selected_next_skill?.trim().toLowerCase() ?? null;
   const approvalState = values.approval_state?.trim().toLowerCase() ?? null;
+  const advisorRuns = parseBrainstormAdvisorRuns(values);
   return {
     type: values.type ?? null,
     path: values.path ?? null,
@@ -202,7 +226,53 @@ function parseArtifactContract(content: string): {
       : null,
     contextSnapshotPath: values.context_snapshot_path ?? null,
     lang: values.lang ?? null,
+    artifactWrittenAt: values.artifact_written_at ?? null,
+    advisorRuns,
   };
+}
+
+function parseArtifactContractString(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized && normalized.toLowerCase() !== 'none' ? normalized : null;
+}
+
+function parseArtifactContractNumber(value: string | undefined): number | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === 'none') return null;
+  const parsed = Number.parseInt(normalized, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseArtifactContractBoolean(value: string | undefined): boolean | null {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  return null;
+}
+
+function parseBrainstormAdvisorRuns(values: Record<string, string>): BrainstormAdvisorRuns | null {
+  const hasAdvisorFields = Object.keys(values).some((key) => key.startsWith('advisor_'));
+  if (!hasAdvisorFields) return null;
+
+  const entries = BRAINSTORM_ADVISOR_PROVIDERS.map((provider) => {
+    const enabled = parseArtifactContractBoolean(values[`advisor_${provider}_enabled`]) ?? false;
+    const status = values[`advisor_${provider}_status`]?.trim().toLowerCase() ?? 'skipped';
+    return [
+      provider,
+      {
+        enabled,
+        status: BRAINSTORM_ADVISOR_RUN_STATUSES.includes(status as BrainstormAdvisorRunStatus)
+          ? status as BrainstormAdvisorRunStatus
+          : 'skipped',
+        artifactPath: parseArtifactContractString(values[`advisor_${provider}_artifact_path`]),
+        exitCode: parseArtifactContractNumber(values[`advisor_${provider}_exit_code`]),
+        summary: parseArtifactContractString(values[`advisor_${provider}_summary`]),
+        error: parseArtifactContractString(values[`advisor_${provider}_error`]),
+      },
+    ] as const;
+  });
+
+  return Object.fromEntries(entries) as BrainstormAdvisorRuns;
 }
 
 function collectBrainstormMissingAnchors(record: Omit<BrainstormArtifactRecord, 'missingAnchors'>, cwd: string): string[] {
@@ -282,6 +352,8 @@ export function readBrainstormArtifact(reportPath: string, cwd = process.cwd()):
       approvalState: contract.approvalState,
       contextSnapshotPath: contract.contextSnapshotPath,
       lang: contract.lang,
+      artifactWrittenAt: contract.artifactWrittenAt,
+      advisorRuns: contract.advisorRuns,
     };
 
     return {

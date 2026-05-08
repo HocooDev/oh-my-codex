@@ -105,6 +105,7 @@ External local advisors are optional and disabled by default.
 - If neither flag/config is enabled, do not call external advisors.
 - External advisors provide supplementary perspective only; they do not replace `agent-explore` for repo facts or `agent-architect` for the main recommendation.
 - Save advisor artifacts under `.omx/artifacts/ask-<backend>-<slug>-<timestamp>.md` and reference them in the report when used.
+- If an enabled advisor fails (missing CLI, auth, non-zero exit, or runtime error), record the failure in state/artifact and continue the brainstorm runtime instead of aborting the main draft.
 </Optional_External_Advisors>
 
 <Workflow>
