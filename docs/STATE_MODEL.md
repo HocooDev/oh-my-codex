@@ -25,6 +25,17 @@ Examples:
 - `.omx/state/sessions/<session_id>/ralph-state.json`
 - `.omx/state/team-state.json`
 
+For the guided brainstorm CLI runtime, `brainstorm-state.json` may also persist artifact-first handoff metadata such as:
+
+- `slug`
+- `context_snapshot_path`
+- `brainstorm_artifact_path`
+- `lang`
+- `advisor_flags`
+- `recommended_next_skill`
+- `selected_next_skill`
+- `approval_state` (`draft`, `continue_exploring`, `approved_for_deep_interview`, `approved_for_ralplan`, `stopped`)
+
 These files determine whether a workflow mode is active, completed, cancelled, or failed. Those mode phases are not always identical to the user-facing terminal lifecycle vocabulary; see the explicit terminal lifecycle section below for that compatibility boundary.
 
 ### 2. `skill-active-state.json` — compatibility / visibility layer

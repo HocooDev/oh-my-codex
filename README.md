@@ -200,6 +200,7 @@ Most users should think of OMX as **better task routing + better workflow + bett
 ## Recommended workflow
 
 1. `$brainstorm` — explore design options and produce a reviewable design report when the idea is still vague.
+   - If you want the artifact-first CLI bridge, use `omx brainstorm` / `omx brainstorm init` to create or update the canonical brainstorm markdown artifact, then record `continue exploring`, `deep-interview`, `ralplan`, or `stop` without auto-launching the next workflow.
 2. `$deep-interview` — clarify scope when the request or boundaries are still vague.
 3. `$ralplan` — turn the approved direction into an approved architecture and implementation plan.
 4. `$team` or `$ralph` — use `$team` for coordinated parallel execution, or `$ralph` when you want a persistent completion loop with one owner.

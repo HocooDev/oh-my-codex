@@ -41,6 +41,7 @@ import { mcpParityCommand } from "./mcp-parity.js";
 import { mcpServeCommand } from "./mcp-serve.js";
 import { adaptCommand } from "./adapt.js";
 import { listCommand } from "./list.js";
+import { brainstormCommand } from "./brainstorm.js";
 import {
   MADMAX_FLAG,
   CODEX_BYPASS_FLAG,
@@ -178,6 +179,7 @@ Usage:
   omx cleanup   Kill orphaned OMX MCP server processes and remove stale OMX /tmp directories
   omx doctor --team  Check team/swarm runtime health diagnostics
   omx ask       Ask local provider CLI (claude|gemini) and write artifact output
+  omx brainstorm Guided brainstorm artifact runtime (init/status; no auto-launch)
   omx question  OMX-owned blocking question UI entrypoint for agent-invoked user questions
   omx adapt     Scaffold OMX-owned adapter foundations for persistent external targets
   omx resume    Resume a previous interactive Codex session
@@ -325,6 +327,7 @@ type CliCommand =
   | "doctor"
   | "cleanup"
   | "ask"
+  | "brainstorm"
   | "question"
   | "adapt"
   | "explore"
@@ -348,6 +351,7 @@ type CliCommand =
 
 const NESTED_HELP_COMMANDS = new Set<CliCommand>([
   "ask",
+  "brainstorm",
   "question",
   "cleanup",
   "adapt",
@@ -1140,6 +1144,9 @@ export async function main(args: string[]): Promise<void> {
       }
       case "ask":
         await askCommand(args.slice(1));
+        break;
+      case "brainstorm":
+        await brainstormCommand(args.slice(1));
         break;
       case "question":
         await questionCommand(args.slice(1));

@@ -16,8 +16,18 @@ const BRAINSTORM_SPEC_PATTERN = /^brainstorm-.*\.md$/i;
 const APPROVED_REPOSITORY_CONTEXT_MAX_CHARS = 4_000;
 const APPROVED_REPOSITORY_CONTEXT_MAX_LINES = 80;
 
-const BRAINSTORM_NEXT_SKILLS = ['deep-interview', 'ralplan', 'none'] as const;
+export const BRAINSTORM_NEXT_SKILLS = ['deep-interview', 'ralplan', 'none'] as const;
 export type BrainstormRecommendedNextSkill = (typeof BRAINSTORM_NEXT_SKILLS)[number];
+export type BrainstormSelectedNextSkill = BrainstormRecommendedNextSkill;
+
+export const BRAINSTORM_APPROVAL_STATES = [
+  'draft',
+  'continue_exploring',
+  'approved_for_deep_interview',
+  'approved_for_ralplan',
+  'stopped',
+] as const;
+export type BrainstormApprovalState = (typeof BRAINSTORM_APPROVAL_STATES)[number];
 
 export interface PlanningArtifacts {
   plansDir: string;
@@ -92,6 +102,10 @@ export interface BrainstormArtifactRecord {
   artifactPath: string | null;
   artifactStatus: string | null;
   recommendedNextSkill: BrainstormRecommendedNextSkill | null;
+  selectedNextSkill: BrainstormSelectedNextSkill | null;
+  approvalState: BrainstormApprovalState | null;
+  contextSnapshotPath: string | null;
+  lang: string | null;
   missingAnchors: string[];
 }
 
@@ -140,11 +154,24 @@ function parseArtifactContract(content: string): {
   path: string | null;
   status: string | null;
   recommendedNextSkill: BrainstormRecommendedNextSkill | null;
+  selectedNextSkill: BrainstormSelectedNextSkill | null;
+  approvalState: BrainstormApprovalState | null;
+  contextSnapshotPath: string | null;
+  lang: string | null;
 } {
   const lines = normalizeMarkdown(content).split('\n');
   const start = lines.findIndex((line) => /^artifact:\s*$/i.test(line.trim()));
   if (start < 0) {
-    return { type: null, path: null, status: null, recommendedNextSkill: null };
+    return {
+      type: null,
+      path: null,
+      status: null,
+      recommendedNextSkill: null,
+      selectedNextSkill: null,
+      approvalState: null,
+      contextSnapshotPath: null,
+      lang: null,
+    };
   }
 
   const values: Record<string, string> = {};
@@ -158,6 +185,8 @@ function parseArtifactContract(content: string): {
   }
 
   const recommendedNextSkill = values.recommended_next_skill?.trim().toLowerCase() ?? null;
+  const selectedNextSkill = values.selected_next_skill?.trim().toLowerCase() ?? null;
+  const approvalState = values.approval_state?.trim().toLowerCase() ?? null;
   return {
     type: values.type ?? null,
     path: values.path ?? null,
@@ -165,6 +194,14 @@ function parseArtifactContract(content: string): {
     recommendedNextSkill: BRAINSTORM_NEXT_SKILLS.includes(recommendedNextSkill as BrainstormRecommendedNextSkill)
       ? recommendedNextSkill as BrainstormRecommendedNextSkill
       : null,
+    selectedNextSkill: BRAINSTORM_NEXT_SKILLS.includes(selectedNextSkill as BrainstormSelectedNextSkill)
+      ? selectedNextSkill as BrainstormSelectedNextSkill
+      : null,
+    approvalState: BRAINSTORM_APPROVAL_STATES.includes(approvalState as BrainstormApprovalState)
+      ? approvalState as BrainstormApprovalState
+      : null,
+    contextSnapshotPath: values.context_snapshot_path ?? null,
+    lang: values.lang ?? null,
   };
 }
 
@@ -241,6 +278,10 @@ export function readBrainstormArtifact(reportPath: string, cwd = process.cwd()):
       artifactPath: contract.path,
       artifactStatus: contract.status,
       recommendedNextSkill: contract.recommendedNextSkill,
+      selectedNextSkill: contract.selectedNextSkill,
+      approvalState: contract.approvalState,
+      contextSnapshotPath: contract.contextSnapshotPath,
+      lang: contract.lang,
     };
 
     return {
@@ -255,6 +296,21 @@ export function readBrainstormArtifact(reportPath: string, cwd = process.cwd()):
 export function readLatestBrainstormArtifact(cwd: string): BrainstormArtifactRecord | null {
   const latest = selectLatestPlanningArtifactPath(readPlanningArtifacts(cwd).brainstormPaths);
   return latest ? readBrainstormArtifact(latest, cwd) : null;
+}
+
+export function readLatestBrainstormArtifactForSlug(cwd: string, slug: string): BrainstormArtifactRecord | null {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (!normalizedSlug) return null;
+  const brainstormPaths = readPlanningArtifacts(cwd).brainstormPaths;
+  for (let index = brainstormPaths.length - 1; index >= 0; index -= 1) {
+    const path = brainstormPaths[index]!;
+    if (planningArtifactSlug(path, 'brainstorm')?.toLowerCase() !== normalizedSlug) {
+      continue;
+    }
+    const record = readBrainstormArtifact(path, cwd);
+    if (record) return record;
+  }
+  return null;
 }
 
 export function readPlanningArtifacts(cwd: string): PlanningArtifacts {

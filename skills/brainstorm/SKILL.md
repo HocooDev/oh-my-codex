@@ -9,6 +9,7 @@ argument-hint: "[--with-claude] [--with-gemini] [--lang <auto|en|zh-CN|zh-TW>] <
 <Purpose>
 Brainstorm is the design-exploration lane that sits before `$deep-interview` and `$ralplan`.
 It turns a vague feature idea, architectural direction, or proposal into a reviewable design report with candidate options, explicit trade-offs, a recommendation, and a handoff decision.
+The guided CLI runtime (`omx brainstorm`, `omx brainstorm init`, `omx brainstorm status`) may create/reuse the canonical artifact and record approval metadata, but it must not auto-launch downstream workflows.
 </Purpose>
 
 <Use_When>
