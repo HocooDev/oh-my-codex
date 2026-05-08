@@ -52,13 +52,66 @@ function shouldSkipForSpawnPermissions(err?: string): boolean {
 }
 
 describe("omx doctor onboarding warning copy", () => {
-	it("warns that the built-in explore harness is not ready on Windows", () => {
-		const check = checkExploreHarness("win32", {} as NodeJS.ProcessEnv);
+	it("warns that the built-in explore harness is not ready on Windows when the packaged custom harness is unavailable", async () => {
+		const packageRoot = await mkdtemp(
+			join(tmpdir(), "omx-doctor-windows-explore-missing-"),
+		);
+		try {
+			await mkdir(join(packageRoot, "crates", "omx-explore"), {
+				recursive: true,
+			});
+			await writeFile(
+				join(packageRoot, "crates", "omx-explore", "Cargo.toml"),
+				"[package]\nname = \"omx-explore-harness\"\nversion = \"0.0.0\"\n",
+			);
 
-		assert.equal(check.name, "Explore Harness");
-		assert.equal(check.status, "warn");
-		assert.match(check.message, /not ready on Windows/i);
-		assert.match(check.message, /OMX_EXPLORE_BIN/);
+			const check = checkExploreHarness(
+				"win32",
+				{} as NodeJS.ProcessEnv,
+				packageRoot,
+			);
+
+			assert.equal(check.name, "Explore Harness");
+			assert.equal(check.status, "warn");
+			assert.match(check.message, /not ready on Windows/i);
+			assert.match(check.message, /OMX_EXPLORE_BIN/);
+		} finally {
+			await rm(packageRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("passes explore harness check on Windows when the packaged custom harness is present", async () => {
+		const packageRoot = await mkdtemp(
+			join(tmpdir(), "omx-doctor-windows-explore-packaged-"),
+		);
+		try {
+			await mkdir(join(packageRoot, "src", "scripts"), {
+				recursive: true,
+			});
+			await mkdir(join(packageRoot, "dist", "scripts"), {
+				recursive: true,
+			});
+			await writeFile(
+				join(packageRoot, "src", "scripts", "explore-windows-harness.ps1"),
+				"Write-Output harness\n",
+			);
+			await writeFile(
+				join(packageRoot, "dist", "scripts", "explore-windows-harness.js"),
+				"console.log('harness');\n",
+			);
+
+			const check = checkExploreHarness(
+				"win32",
+				{} as NodeJS.ProcessEnv,
+				packageRoot,
+			);
+
+			assert.equal(check.name, "Explore Harness");
+			assert.equal(check.status, "pass");
+			assert.match(check.message, /packaged Windows custom harness/i);
+		} finally {
+			await rm(packageRoot, { recursive: true, force: true });
+		}
 	});
 
 	it("explains first-setup expectation for config and MCP onboarding warnings", async () => {
@@ -121,7 +174,7 @@ command = "node"
 			assert.match(res.stdout, /Resolved setup install mode: plugin/);
 			assert.match(
 				res.stdout,
-				/Prompts: plugin mode intentionally omits setup-owned prompts; Codex plugin discovery supplies workflow surfaces/,
+				/Agent skills: plugin mode intentionally omits setup-owned agent role skills; Codex plugin discovery supplies role surfaces/,
 			);
 			assert.match(
 				res.stdout,
@@ -178,7 +231,7 @@ command = "node"
 			);
 			assert.match(
 				res.stdout,
-				/Prompts: plugin mode intentionally omits setup-owned prompts; Codex plugin discovery supplies workflow surfaces/,
+				/Agent skills: plugin mode intentionally omits setup-owned agent role skills; Codex plugin discovery supplies role surfaces/,
 			);
 			assert.match(
 				res.stdout,
@@ -362,6 +415,7 @@ enabled = true
   });
 
   it('warns when explore harness sources are packaged but cargo is unavailable', async () => {
+    if (process.platform === 'win32') return;
     const wd = await mkdtemp(join(tmpdir(), 'omx-doctor-explore-copy-'));
     try {
       await withPackagedExploreHarnessHidden(async () => {
@@ -425,7 +479,7 @@ enabled = true
           assert.equal(res.status, 0, res.stderr || res.stdout);
           assert.match(
             res.stdout,
-            /Explore Harness: ready \(packaged native binary:/,
+            /Explore Harness: ready \((packaged native binary|packaged Windows custom harness):/,
           );
         } finally {
           if (originalBinary) {

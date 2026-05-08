@@ -54,6 +54,8 @@ describe('resolveSparkShellBinaryPath', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'omx-sparkshell-override-'));
     try {
       const binary = join(cwd, 'bin', 'custom-sparkshell');
+      await mkdir(dirname(binary), { recursive: true });
+      await writeFile(binary, '');
       assert.equal(
         resolveSparkShellBinaryPath({
           cwd,
@@ -523,7 +525,7 @@ describe('omx sparkshell', () => {
       if (shouldSkipForSpawnPermissions(result.error)) return;
 
       assert.equal(result.status, 1, result.stderr || result.stdout);
-      assert.match(result.stderr, /failed to launch native binary: executable not found/);
+      assert.match(result.stderr, /override path not found/);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

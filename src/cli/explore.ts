@@ -52,6 +52,8 @@ interface ExploreHarnessCommand {
   args: string[];
 }
 
+const WINDOWS_PACKAGED_EXPLORE_HARNESS_SCRIPT = ['src', 'scripts', 'explore-windows-harness.ps1'] as const;
+const WINDOWS_PACKAGED_EXPLORE_HARNESS_ENTRY = ['dist', 'scripts', 'explore-windows-harness.js'] as const;
 
 interface ExploreHarnessMetadata {
   binaryName?: string;
@@ -62,17 +64,20 @@ interface ExploreHarnessMetadata {
 export function getBuiltinExploreHarnessUnsupportedReason(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
+  packageRoot = getPackageRoot(),
 ): string | undefined {
   if (platform !== 'win32') return undefined;
   if (env[EXPLORE_BIN_ENV]?.trim()) return undefined;
+  if (resolvePackagedWindowsExploreHarnessCommand(packageRoot, platform)) return undefined;
   return WINDOWS_BUILTIN_EXPLORE_HARNESS_REASON;
 }
 
 export function assertBuiltinExploreHarnessSupported(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
+  packageRoot = getPackageRoot(),
 ): void {
-  const reason = getBuiltinExploreHarnessUnsupportedReason(platform, env);
+  const reason = getBuiltinExploreHarnessUnsupportedReason(platform, env, packageRoot);
   if (reason) throw new Error(`[explore] ${reason}`);
 }
 
@@ -238,6 +243,17 @@ export function packagedExploreHarnessBinaryName(platform: NodeJS.Platform = pro
   return platform === 'win32' ? 'omx-explore-harness.exe' : 'omx-explore-harness';
 }
 
+export function resolvePackagedWindowsExploreHarnessCommand(
+  packageRoot = getPackageRoot(),
+  platform: NodeJS.Platform = process.platform,
+): ExploreHarnessCommand | undefined {
+  if (platform !== 'win32') return undefined;
+  const scriptPath = join(packageRoot, ...WINDOWS_PACKAGED_EXPLORE_HARNESS_SCRIPT);
+  const entryPath = join(packageRoot, ...WINDOWS_PACKAGED_EXPLORE_HARNESS_ENTRY);
+  if (!existsSync(scriptPath) || !existsSync(entryPath)) return undefined;
+  return { command: scriptPath, args: [] };
+}
+
 export function resolvePackagedExploreHarnessCommand(
   packageRoot = getPackageRoot(),
   platform: NodeJS.Platform = process.platform,
@@ -357,6 +373,9 @@ export function resolveExploreHarnessCommand(
     return { command: isAbsolute(override) ? override : join(packageRoot, override), args: [] };
   }
 
+  const packagedWindows = resolvePackagedWindowsExploreHarnessCommand(packageRoot);
+  if (packagedWindows) return packagedWindows;
+
   const packaged = resolvePackagedExploreHarnessCommand(packageRoot);
   if (packaged) return packaged;
 
@@ -390,6 +409,9 @@ export async function resolveExploreHarnessCommandWithHydration(
   if (override) {
     return { command: isAbsolute(override) ? override : join(packageRoot, override), args: [] };
   }
+
+  const packagedWindows = resolvePackagedWindowsExploreHarnessCommand(packageRoot);
+  if (packagedWindows) return packagedWindows;
 
   const version = await getPackageVersion(packageRoot);
   for (const cached of resolveCachedNativeBinaryCandidatePaths('omx-explore-harness', version, process.platform, process.arch, env)) {
@@ -480,7 +502,7 @@ export async function exploreCommand(args: string[]): Promise<void> {
   }
 
   const packageRoot = getPackageRoot();
-  assertBuiltinExploreHarnessSupported(process.platform, exploreEnv);
+  assertBuiltinExploreHarnessSupported(process.platform, exploreEnv, packageRoot);
   const harness = await resolveExploreHarnessCommandWithHydration(packageRoot, exploreEnv);
   const harnessArgs = [...harness.args, ...buildExploreHarnessArgs(prompt, cwd, exploreEnv, packageRoot)];
 

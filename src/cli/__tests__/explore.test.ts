@@ -22,6 +22,7 @@ import {
   resolveExploreEnv,
   resolveExploreSparkShellRoute,
   resolvePackagedExploreHarnessCommand,
+  resolvePackagedWindowsExploreHarnessCommand,
 } from '../explore.js';
 import { writePage, WIKI_SCHEMA_VERSION } from '../../wiki/index.js';
 import { withPackagedExploreHarnessHidden, withPackagedExploreHarnessLock } from './packaged-explore-harness-lock.js';
@@ -448,6 +449,39 @@ describe('resolvePackagedExploreHarnessCommand', () => {
       await writeFile(join(binDir, packagedExploreHarnessBinaryName('linux')), '#!/bin/sh\nexit 0\n');
 
       assert.equal(resolvePackagedExploreHarnessCommand(wd), undefined);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('resolvePackagedWindowsExploreHarnessCommand', () => {
+  it('uses the packaged Windows custom harness when the wrapper and dist entry are present', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-explore-packaged-windows-custom-'));
+    try {
+      await mkdir(join(wd, 'src', 'scripts'), { recursive: true });
+      await mkdir(join(wd, 'dist', 'scripts'), { recursive: true });
+      await writeFile(join(wd, 'src', 'scripts', 'explore-windows-harness.ps1'), 'Write-Output harness');
+      await writeFile(join(wd, 'dist', 'scripts', 'explore-windows-harness.js'), 'console.log("harness");');
+
+      const resolved = resolvePackagedWindowsExploreHarnessCommand(wd, 'win32');
+      assert.deepEqual(resolved, {
+        command: join(wd, 'src', 'scripts', 'explore-windows-harness.ps1'),
+        args: [],
+      });
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores the packaged Windows custom harness when required files are missing or platform is not win32', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-explore-packaged-windows-missing-'));
+    try {
+      await mkdir(join(wd, 'src', 'scripts'), { recursive: true });
+      await writeFile(join(wd, 'src', 'scripts', 'explore-windows-harness.ps1'), 'Write-Output harness');
+
+      assert.equal(resolvePackagedWindowsExploreHarnessCommand(wd, 'win32'), undefined);
+      assert.equal(resolvePackagedWindowsExploreHarnessCommand(wd, 'linux'), undefined);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }

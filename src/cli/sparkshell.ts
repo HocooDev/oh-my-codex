@@ -112,7 +112,11 @@ export function resolveSparkShellBinaryPath(options: ResolveSparkShellBinaryPath
 
   const override = env[OMX_SPARKSHELL_BIN_ENV]?.trim();
   if (override) {
-    return isAbsolute(override) ? override : resolve(cwd, override);
+    const resolvedOverride = isAbsolute(override) ? override : resolve(cwd, override);
+    if (!exists(resolvedOverride)) {
+      throw new Error(`[sparkshell] override path not found: ${resolvedOverride}`);
+    }
+    return resolvedOverride;
   }
 
   for (const packaged of packagedSparkShellBinaryCandidatePaths(packageRoot, platform, arch, env, linuxLibcPreference)) {
@@ -147,7 +151,11 @@ export async function resolveSparkShellBinaryPathWithHydration(
 
   const override = env[OMX_SPARKSHELL_BIN_ENV]?.trim();
   if (override) {
-    return isAbsolute(override) ? override : resolve(cwd, override);
+    const resolvedOverride = isAbsolute(override) ? override : resolve(cwd, override);
+    if (!exists(resolvedOverride)) {
+      throw new Error(`[sparkshell] override path not found: ${resolvedOverride}`);
+    }
+    return resolvedOverride;
   }
 
   const version = await getPackageVersion(packageRoot);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 function usage(): void {
   console.error('Usage: node scripts/generate-native-release-manifest.mjs --plan <path> --artifacts-dir <dir> --out <path> --release-base-url <url> [--require-products a,b]');
@@ -88,9 +88,13 @@ interface ManifestAsset {
   download_url: string;
 }
 
+function shouldPublishManifestAsset(asset: ManifestAsset): boolean {
+  return !(asset.product === 'omx-explore-harness' && asset.platform === 'win32');
+}
+
 const plan = JSON.parse(readFileSync(resolve(planPath!), 'utf-8')) as Plan;
 const files = walk(resolve(artifactsDir!));
-const byName = new Map(files.map((file) => [file.split('/').pop()!, file]));
+const byName = new Map(files.map((file) => [basename(file), file]));
 const assets: ManifestAsset[] = [];
 
 for (const artifact of Object.values(plan.artifacts)) {
@@ -108,7 +112,7 @@ for (const artifact of Object.values(plan.artifacts)) {
 
   const release = plan.releases.find((item) => item.app_name === executable.name || item.app_name === executable.id?.split('-exe-')[0]);
   const version = release?.app_version || plan.announcement_tag.replace(/^v/, '');
-  assets.push({
+  const manifestAsset: ManifestAsset = {
     product: executable.name,
     version,
     platform: mapped.platform,
@@ -121,7 +125,8 @@ for (const artifact of Object.values(plan.artifacts)) {
     sha256: parseChecksum(readFileSync(checksumPath, 'utf-8')),
     size: statSync(archivePath).size,
     download_url: `${releaseBaseUrl!.replace(/\/$/, '')}/${artifact.name}`,
-  });
+  };
+  if (shouldPublishManifestAsset(manifestAsset)) assets.push(manifestAsset);
 }
 
 const manifest = {

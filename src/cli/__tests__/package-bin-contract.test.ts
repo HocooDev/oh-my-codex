@@ -179,6 +179,9 @@ describe('package bin contract', () => {
     const codeIntelServerEntry = results[0]?.files?.find((file) => file.path === 'dist/mcp/code-intel-server.js');
     const traceServerEntry = results[0]?.files?.find((file) => file.path === 'dist/mcp/trace-server.js');
     const wikiServerEntry = results[0]?.files?.find((file) => file.path === 'dist/mcp/wiki-server.js');
+    const windowsHarnessEntry = results[0]?.files?.find((file) => file.path === 'dist/scripts/explore-windows-harness.js');
+    const windowsHarnessPs1Entry = results[0]?.files?.find((file) => file.path === 'src/scripts/explore-windows-harness.ps1');
+    const windowsHarnessCmdEntry = results[0]?.files?.find((file) => file.path === 'src/scripts/explore-windows-harness.cmd');
     const rootRalphSkillEntry = results[0]?.files?.find((file) => file.path === 'skills/ralph/SKILL.md');
     const promptEntry = results[0]?.files?.find((file) => file.path === 'prompts/executor.md');
     const templateEntry = results[0]?.files?.find((file) => file.path === 'templates/AGENTS.md');
@@ -206,6 +209,9 @@ describe('package bin contract', () => {
     assert.ok(codeIntelServerEntry, 'expected npm pack output to include dist/mcp/code-intel-server.js for omx mcp-serve');
     assert.ok(traceServerEntry, 'expected npm pack output to include dist/mcp/trace-server.js for omx mcp-serve');
     assert.ok(wikiServerEntry, 'expected npm pack output to include dist/mcp/wiki-server.js for omx mcp-serve');
+    assert.ok(windowsHarnessEntry, 'expected npm pack output to include the packaged Windows explore harness entrypoint');
+    assert.ok(windowsHarnessPs1Entry, 'expected npm pack output to include the packaged Windows explore harness PowerShell wrapper');
+    assert.ok(windowsHarnessCmdEntry, 'expected npm pack output to include the packaged Windows explore harness cmd wrapper');
     const packedFilePaths = new Set((results[0]?.files ?? []).map((file) => file.path));
     const manifest = readCatalogManifest(process.cwd());
     const installableSkillNames = [...getSetupInstallableSkillNames(manifest)].sort();

@@ -23,6 +23,7 @@ import {
 	getBuiltinExploreHarnessUnsupportedReason,
 	resolvePackagedExploreHarnessCommand,
 	EXPLORE_BIN_ENV,
+	resolvePackagedWindowsExploreHarnessCommand,
 } from "./explore.js";
 import { getPackageRoot } from "../utils/package.js";
 import {
@@ -634,18 +635,8 @@ function checkNodeVersion(): Check {
 export function checkExploreHarness(
 	platform: NodeJS.Platform = process.platform,
 	env: NodeJS.ProcessEnv = process.env,
+	packageRoot = getPackageRoot(),
 ): Check {
-	const packageRoot = getPackageRoot();
-	const manifestPath = join(packageRoot, "crates", "omx-explore", "Cargo.toml");
-	if (!existsSync(manifestPath)) {
-		return {
-			name: "Explore Harness",
-			status: "warn",
-			message:
-				"Rust harness sources not found in this install (omx explore unavailable until packaged or OMX_EXPLORE_BIN is set)",
-		};
-	}
-
 	const override = env[EXPLORE_BIN_ENV]?.trim();
 	if (override) {
 		const resolved = join(packageRoot, override);
@@ -663,9 +654,22 @@ export function checkExploreHarness(
 		};
 	}
 
+	const packagedWindows = resolvePackagedWindowsExploreHarnessCommand(
+		packageRoot,
+		platform,
+	);
+	if (packagedWindows) {
+		return {
+			name: "Explore Harness",
+			status: "pass",
+			message: `ready (packaged Windows custom harness: ${packagedWindows.command})`,
+		};
+	}
+
 	const unsupportedReason = getBuiltinExploreHarnessUnsupportedReason(
 		platform,
 		env,
+		packageRoot,
 	);
 	if (unsupportedReason) {
 		return {
@@ -681,6 +685,16 @@ export function checkExploreHarness(
 			name: "Explore Harness",
 			status: "pass",
 			message: `ready (packaged native binary: ${packaged.command})`,
+		};
+	}
+
+	const manifestPath = join(packageRoot, "crates", "omx-explore", "Cargo.toml");
+	if (!existsSync(manifestPath)) {
+		return {
+			name: "Explore Harness",
+			status: "warn",
+			message:
+				"Rust harness sources not found in this install (omx explore unavailable until packaged or OMX_EXPLORE_BIN is set)",
 		};
 	}
 
