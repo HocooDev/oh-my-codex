@@ -30,6 +30,7 @@ describe('ralplan runtime', () => {
           seenPhases.push(String(state.current_phase));
           assert.equal(state.current_phase, 'draft');
           assert.equal(state.iteration, 1);
+          assert.equal(ctx.designInput?.slug, 'search-ux');
 
           const plansDir = join(cwd, '.omx', 'plans');
           await mkdir(plansDir, { recursive: true });
@@ -52,12 +53,26 @@ describe('ralplan runtime', () => {
           assert.equal(state.iteration, 1);
           return { verdict: 'approve', summary: 'critic-ok', artifacts: { critiqued: true } };
         },
-      }, { task: 'implement live ralplan runtime', cwd });
+      }, {
+        task: 'implement live ralplan runtime',
+        cwd,
+        designInput: {
+          sourcePath: join(cwd, '.omx', 'specs', 'brainstorm-20260508T010203Z-search-ux.md'),
+          slug: 'search-ux',
+          timestamp: '20260508T010203Z',
+          approvedRecommendation: 'Adopt shared debounce',
+          suggestedNextCommand: '$ralplan "Finalize search UX plan"',
+          handoffDecision: 'Approved for planning',
+          recommendedNextSkill: 'ralplan',
+          content: '# Brainstorm Report: Search UX',
+        },
+      });
 
       assert.equal(result.status, 'completed');
       assert.equal(result.phase, 'complete');
       assert.equal(result.iteration, 1);
       assert.equal(result.planningComplete, true);
+      assert.equal(result.artifacts.designInputRecommendedNextSkill, 'ralplan');
       assert.deepEqual(seenPhases, ['draft', 'architect-review', 'critic-review']);
       assert.equal(existsSync(join(cwd, '.omx', 'state', 'ralplan-state.json')), false);
       assert.equal(existsSync(sessionStatePath(cwd, sessionId)), true);

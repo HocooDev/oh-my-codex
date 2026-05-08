@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import {
   decodeApprovedExecutionQuotedValue,
   isPlanningComplete,
+  readBrainstormArtifact,
+  readLatestBrainstormArtifact,
   readApprovedExecutionLaunchHint,
   readLatestPlanningArtifacts,
   readPlanningArtifacts,
@@ -66,6 +68,94 @@ describe('planning artifacts', () => {
     assert.equal(isPlanningComplete(artifacts), false);
     assert.equal(artifacts.prdPaths.length, 1);
     assert.equal(artifacts.testSpecPaths.length, 0);
+  });
+
+  it('discovers brainstorm artifacts without misclassifying them as PRDs or deep-interview specs', async () => {
+    const specsDir = join(tempDir, '.omx', 'specs');
+    await mkdir(specsDir, { recursive: true });
+    await writeFile(join(specsDir, 'brainstorm-20260508T010203Z-alpha.md'), '# Brainstorm Report: Alpha\n');
+    await writeFile(join(specsDir, 'deep-interview-alpha.md'), '# Deep Interview\n');
+    await writeFile(join(specsDir, 'brainstorm-notes.txt'), 'ignore me\n');
+
+    const artifacts = readPlanningArtifacts(tempDir);
+    assert.deepEqual(artifacts.brainstormPaths, [join(specsDir, 'brainstorm-20260508T010203Z-alpha.md')]);
+    assert.deepEqual(artifacts.deepInterviewSpecPaths, [join(specsDir, 'deep-interview-alpha.md')]);
+    assert.equal(artifacts.prdPaths.length, 0);
+  });
+
+  it('reads the latest brainstorm artifact and extracts the handoff anchors', async () => {
+    const specsDir = join(tempDir, '.omx', 'specs');
+    await mkdir(specsDir, { recursive: true });
+    const olderPath = join(specsDir, 'brainstorm-20260508T010203Z-alpha.md');
+    const newerPath = join(specsDir, 'brainstorm-20260508T020304Z-alpha.md');
+    const olderContent = [
+      '# Brainstorm Report: Alpha',
+      '',
+      '## 9. Recommendation',
+      'Approved recommendation: Old direction',
+      '',
+      '## 15. Ralplan Handoff',
+      'Suggested next command: $ralplan --from-design .omx/specs/brainstorm-20260508T010203Z-alpha.md "Plan the old direction"',
+      '',
+      '## 16. Handoff Decision',
+      'Handoff Decision: Hold',
+      '',
+      'artifact:',
+      '  type: brainstorm_design_report',
+      '  path: .omx/specs/brainstorm-20260508T010203Z-alpha.md',
+      '  status: draft',
+      '  recommended_next_skill: ralplan',
+      '',
+    ].join('\n');
+    const newerContent = olderContent
+      .replace('Old direction', 'New direction')
+      .replace('Plan the old direction', 'Plan the new direction')
+      .replace('Hold', 'Proceed to planning')
+      .replaceAll('20260508T010203Z', '20260508T020304Z')
+      .replace('status: draft', 'status: approved');
+    await writeFile(olderPath, olderContent);
+    await writeFile(newerPath, newerContent);
+
+    const artifact = readLatestBrainstormArtifact(tempDir);
+    assert.ok(artifact);
+    assert.equal(artifact?.path, newerPath);
+    assert.equal(artifact?.approvedRecommendation, 'New direction');
+    assert.equal(
+      artifact?.suggestedNextCommand,
+      '$ralplan --from-design .omx/specs/brainstorm-20260508T020304Z-alpha.md "Plan the new direction"',
+    );
+    assert.equal(artifact?.handoffDecision, 'Proceed to planning');
+    assert.equal(artifact?.recommendedNextSkill, 'ralplan');
+    assert.deepEqual(artifact?.missingAnchors, []);
+  });
+
+  it('reports missing brainstorm handoff anchors explicitly', async () => {
+    const specsDir = join(tempDir, '.omx', 'specs');
+    await mkdir(specsDir, { recursive: true });
+    const reportPath = join(specsDir, 'brainstorm-20260508T020304Z-beta.md');
+    await writeFile(
+      reportPath,
+      [
+        '# Brainstorm Report: Beta',
+        '',
+        '## 9. Recommendation',
+        'Approved recommendation: Direction beta',
+        '',
+        '## 16. Handoff Decision',
+        'Handoff Decision: Keep exploring',
+        '',
+        'artifact:',
+        '  type: brainstorm_design_report',
+        '  path: .omx/specs/brainstorm-20260508T020304Z-beta.md',
+        '  status: draft',
+        '  recommended_next_skill: none',
+        '',
+      ].join('\n'),
+    );
+
+    const artifact = readBrainstormArtifact(reportPath, tempDir);
+    assert.ok(artifact);
+    assert.deepEqual(artifact?.missingAnchors, ['## 15. Ralplan Handoff', 'Suggested next command']);
   });
 
 

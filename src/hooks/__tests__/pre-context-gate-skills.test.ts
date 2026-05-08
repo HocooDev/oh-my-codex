@@ -38,6 +38,8 @@ describe('pre-context gate guidance in planning/execution-heavy skills', () => {
     assert.match(ralplanSkill, /Pre-context Intake/i);
     assert.match(ralplanSkill, /\.omx\/context\/\{slug\}-\{timestamp\}\.md/);
     assert.match(ralplanSkill, /\$deep-interview\s+--quick/i);
+    assert.match(ralplanSkill, /--from-design/i);
+    assert.match(ralplanSkill, /recommended_next_skill: ralplan/i);
   });
 
   it('team documents required context snapshot gate before launch', () => {

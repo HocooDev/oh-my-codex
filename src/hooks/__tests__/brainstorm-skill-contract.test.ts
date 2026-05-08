@@ -37,6 +37,13 @@ describe('brainstorm skill contract', () => {
   it('requires report output in the user language and a stable brainstorm artifact contract', () => {
     assert.match(brainstormSkill, /must match the user's language environment/i);
     assert.match(brainstormSkill, /\.omx\/specs\/brainstorm-<timestamp>-<slug>\.md/i);
+    assert.match(brainstormSkill, /# Brainstorm Report:/i);
+    assert.match(brainstormSkill, /## 9\. Recommendation/i);
+    assert.match(brainstormSkill, /## 15\. Ralplan Handoff/i);
+    assert.match(brainstormSkill, /## 16\. Handoff Decision/i);
+    assert.match(brainstormSkill, /Approved recommendation:/i);
+    assert.match(brainstormSkill, /Suggested next command:/i);
+    assert.match(brainstormSkill, /Handoff Decision:/i);
     assert.match(brainstormSkill, /type: brainstorm_design_report/i);
     assert.match(brainstormSkill, /recommended_next_skill: deep-interview \| ralplan \| none/i);
     assert.match(brainstormSkill, /must not auto-trigger/i);

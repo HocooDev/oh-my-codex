@@ -128,22 +128,31 @@ Write the final report to:
 
 The report must include:
 
-1. Original Idea
-2. Current Understanding
-3. Context Scan
-4. Goals
-5. Non-goals
-6. Constraints
-7. Open Questions
-8. Candidate Solutions
-9. Recommendation
-10. Proposed Workflow
-11. Proposed Artifact Contract
-12. Integration With Existing OMX Skills
-13. Risks and Mitigations
-14. Testing Strategy
-15. Ralplan Handoff
-16. Handoff Decision
+```markdown
+# Brainstorm Report: <title>
+
+## 1. Original Idea
+## 2. Current Understanding
+## 3. Context Scan
+## 4. Goals
+## 5. Non-goals
+## 6. Constraints
+## 7. Open Questions
+## 8. Candidate Solutions
+## 9. Recommendation
+Approved recommendation: <one-line approved direction>
+
+## 10. Proposed Workflow
+## 11. Proposed Artifact Contract
+## 12. Integration With Existing OMX Skills
+## 13. Risks and Mitigations
+## 14. Testing Strategy
+## 15. Ralplan Handoff
+Suggested next command: $ralplan --from-design .omx/specs/brainstorm-<timestamp>-<slug>.md "<planning task>"
+
+## 16. Handoff Decision
+Handoff Decision: <approved for ralplan | needs deep-interview | continue research>
+```
 
 Required handoff contract:
 
@@ -154,6 +163,8 @@ artifact:
   status: draft | approved | superseded
   recommended_next_skill: deep-interview | ralplan | none
 ```
+
+The heading text and anchor labels above are machine-consumed contracts. Do not rename `# Brainstorm Report:`, `## 9. Recommendation`, `## 15. Ralplan Handoff`, `## 16. Handoff Decision`, `Approved recommendation:`, `Suggested next command:`, or `Handoff Decision:`.
 </Report_Template>
 
 <Language_Policy>

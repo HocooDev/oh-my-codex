@@ -108,6 +108,19 @@ describe('RALPLAN Stage', () => {
     assert.equal(stage.canSkip!(makeCtx()), true);
   });
 
+  it('canSkip returns false for --from-design tasks even when planning artifacts already exist', async () => {
+    const plansDir = join(tempDir, '.omx', 'plans');
+    await mkdir(plansDir, { recursive: true });
+    await writeFile(join(plansDir, 'prd-my-feature.md'), '# Plan\n');
+    await writeFile(join(plansDir, 'test-spec-my-feature.md'), '# Test Spec\n');
+
+    const stage = createRalplanStage();
+    assert.equal(
+      stage.canSkip!(makeCtx({ task: '--from-design .omx/specs/brainstorm-20260508T020304Z-search.md' })),
+      false,
+    );
+  });
+
   it('canSkip returns false after non-clean code-review loopback even when plans exist', async () => {
     const plansDir = join(tempDir, '.omx', 'plans');
     await mkdir(plansDir, { recursive: true });
@@ -181,6 +194,73 @@ describe('RALPLAN Stage', () => {
     assert.equal(artifacts.planningComplete, true);
     assert.equal(artifacts.iteration, 1);
     assert.equal(artifacts.runtimeDrafted, true);
+  });
+
+  it('surfaces brainstorm design intake metadata in the ralplan stage', async () => {
+    const specsDir = join(tempDir, '.omx', 'specs');
+    await mkdir(specsDir, { recursive: true });
+    const reportName = 'brainstorm-20260508T020304Z-search.md';
+    await writeFile(
+      join(specsDir, reportName),
+      [
+        '# Brainstorm Report: Search UX',
+        '',
+        '## 9. Recommendation',
+        'Approved recommendation: Implement the incremental search UX with a shared debounce layer.',
+        '',
+        '## 15. Ralplan Handoff',
+        `Suggested next command: $ralplan --from-design .omx/specs/${reportName} "Turn the approved search UX direction into a PRD and test spec"`,
+        '',
+        '## 16. Handoff Decision',
+        'Handoff Decision: Approved for planning after design review.',
+        '',
+        'artifact:',
+        `  type: brainstorm_design_report`,
+        `  path: .omx/specs/${reportName}`,
+        '  status: approved',
+        '  recommended_next_skill: ralplan',
+        '',
+      ].join('\n'),
+    );
+
+    const stage = createRalplanStage();
+    const result = await stage.run(makeCtx({ task: `--from-design .omx/specs/${reportName}` }));
+    const artifacts = result.artifacts as Record<string, unknown>;
+
+    assert.equal(result.status, 'completed');
+    assert.equal(
+      artifacts.task,
+      'Turn the approved search UX direction into a PRD and test spec',
+    );
+    assert.equal(artifacts.designInputPath, join(specsDir, reportName));
+    assert.equal(artifacts.designInputRecommendedNextSkill, 'ralplan');
+    assert.match(String(artifacts.instruction || ''), /Treat the brainstorm report as design input only/i);
+  });
+
+  it('fails fast when --from-design points at an invalid brainstorm report', async () => {
+    const specsDir = join(tempDir, '.omx', 'specs');
+    await mkdir(specsDir, { recursive: true });
+    const reportName = 'brainstorm-20260508T020304Z-bad.md';
+    await writeFile(
+      join(specsDir, reportName),
+      [
+        '# Brainstorm Report: Bad',
+        '',
+        '## 9. Recommendation',
+        'Approved recommendation: Something vague.',
+        '',
+        '## 16. Handoff Decision',
+        'Handoff Decision: Not yet.',
+        '',
+      ].join('\n'),
+    );
+
+    const stage = createRalplanStage();
+    const result = await stage.run(makeCtx({ task: `--from-design .omx/specs/${reportName}` }));
+
+    assert.equal(result.status, 'failed');
+    assert.equal((result.artifacts as Record<string, unknown>).errorCode, 'design_input_missing_anchors');
+    assert.match(result.error || '', /Missing required anchors/i);
   });
 
   it('canSkip returns false for non-prd plan files', async () => {

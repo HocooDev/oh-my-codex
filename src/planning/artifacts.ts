@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   comparePlanningArtifactPaths,
   parsePlanningArtifactFileName,
@@ -12,8 +12,12 @@ import { omxPlansDir } from '../utils/paths.js';
 const PRD_PATTERN = /^prd-.*\.md$/i;
 const TEST_SPEC_PATTERN = /^test-?spec-.*\.md$/i;
 const DEEP_INTERVIEW_SPEC_PATTERN = /^deep-interview-.*\.md$/i;
+const BRAINSTORM_SPEC_PATTERN = /^brainstorm-.*\.md$/i;
 const APPROVED_REPOSITORY_CONTEXT_MAX_CHARS = 4_000;
 const APPROVED_REPOSITORY_CONTEXT_MAX_LINES = 80;
+
+const BRAINSTORM_NEXT_SKILLS = ['deep-interview', 'ralplan', 'none'] as const;
+export type BrainstormRecommendedNextSkill = (typeof BRAINSTORM_NEXT_SKILLS)[number];
 
 export interface PlanningArtifacts {
   plansDir: string;
@@ -21,6 +25,7 @@ export interface PlanningArtifacts {
   prdPaths: string[];
   testSpecPaths: string[];
   deepInterviewSpecPaths: string[];
+  brainstormPaths: string[];
 }
 
 export interface ApprovedRepositoryContextSummary {
@@ -71,6 +76,25 @@ export interface TeamDagArtifactResolution {
   warnings: string[];
 }
 
+export interface BrainstormArtifactRecord {
+  path: string;
+  slug: string;
+  timestamp?: string;
+  content: string;
+  title: string | null;
+  recommendationSection: string;
+  ralplanHandoffSection: string;
+  handoffDecisionSection: string;
+  approvedRecommendation: string | null;
+  suggestedNextCommand: string | null;
+  handoffDecision: string | null;
+  artifactType: string | null;
+  artifactPath: string | null;
+  artifactStatus: string | null;
+  recommendedNextSkill: BrainstormRecommendedNextSkill | null;
+  missingAnchors: string[];
+}
+
 function readMatchingPaths(dir: string, pattern: RegExp): string[] {
   if (!existsSync(dir)) {
     return [];
@@ -86,9 +110,156 @@ function readMatchingPaths(dir: string, pattern: RegExp): string[] {
   }
 }
 
+function normalizeMarkdown(content: string): string {
+  return content.replace(/\r\n/g, '\n');
+}
+
+function extractMarkdownSection(content: string, headingPattern: RegExp): string {
+  const lines = normalizeMarkdown(content).split('\n');
+  const headingIndex = lines.findIndex((line) => headingPattern.test(line.trim()));
+  if (headingIndex < 0) return '';
+
+  const headingLevel = lines[headingIndex].match(/^(#+)/)?.[1].length ?? 1;
+  const body: string[] = [];
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    const nextHeading = lines[index].match(/^(#{1,6})\s+/);
+    if (nextHeading && nextHeading[1].length <= headingLevel) break;
+    body.push(lines[index]);
+  }
+  return body.join('\n').trim();
+}
+
+function extractAnchoredValue(section: string, label: string): string | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = section.match(new RegExp(`^\\s*(?:-\\s*)?${escaped}:\\s*(.+?)\\s*$`, 'im'));
+  return match?.[1]?.trim() || null;
+}
+
+function parseArtifactContract(content: string): {
+  type: string | null;
+  path: string | null;
+  status: string | null;
+  recommendedNextSkill: BrainstormRecommendedNextSkill | null;
+} {
+  const lines = normalizeMarkdown(content).split('\n');
+  const start = lines.findIndex((line) => /^artifact:\s*$/i.test(line.trim()));
+  if (start < 0) {
+    return { type: null, path: null, status: null, recommendedNextSkill: null };
+  }
+
+  const values: Record<string, string> = {};
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (line.trim() === '') continue;
+    if (/^\S/.test(line)) break;
+    const match = line.match(/^\s+(?<key>[a-z_]+):\s*(?<value>.+?)\s*$/i);
+    if (!match?.groups?.key || !match.groups.value) continue;
+    values[match.groups.key.toLowerCase()] = match.groups.value.trim();
+  }
+
+  const recommendedNextSkill = values.recommended_next_skill?.trim().toLowerCase() ?? null;
+  return {
+    type: values.type ?? null,
+    path: values.path ?? null,
+    status: values.status ?? null,
+    recommendedNextSkill: BRAINSTORM_NEXT_SKILLS.includes(recommendedNextSkill as BrainstormRecommendedNextSkill)
+      ? recommendedNextSkill as BrainstormRecommendedNextSkill
+      : null,
+  };
+}
+
+function collectBrainstormMissingAnchors(record: Omit<BrainstormArtifactRecord, 'missingAnchors'>, cwd: string): string[] {
+  const missing: string[] = [];
+  if (!record.title || !/^#\s+Brainstorm Report:/i.test(record.title)) {
+    missing.push('# Brainstorm Report:');
+  }
+  if (!record.recommendationSection) missing.push('## 9. Recommendation');
+  if (!record.ralplanHandoffSection) missing.push('## 15. Ralplan Handoff');
+  if (!record.handoffDecisionSection) missing.push('## 16. Handoff Decision');
+  if (!record.approvedRecommendation) missing.push('Approved recommendation');
+  if (!record.suggestedNextCommand) missing.push('Suggested next command');
+  if (!record.handoffDecision) missing.push('Handoff Decision');
+  if (record.artifactType !== 'brainstorm_design_report') missing.push('artifact.type = brainstorm_design_report');
+  if (!record.artifactPath) {
+    missing.push('artifact.path');
+  } else {
+    const declaredPath = record.artifactPath.replace(/\\/g, '/').replace(/^\.\//, '');
+    const actualRelativePath = relative(cwd, record.path).replace(/\\/g, '/');
+    if (
+      !/^\.omx\/specs\/brainstorm-.*\.md$/i.test(declaredPath)
+      || declaredPath !== actualRelativePath
+      || !isCanonicalBrainstormArtifactPath(record.path, cwd)
+    ) {
+      missing.push('artifact.path matches brainstorm artifact path');
+    }
+  }
+  if (!record.recommendedNextSkill) missing.push('recommended_next_skill');
+  return missing;
+}
+
+export function brainstormSpecsDir(cwd: string): string {
+  return join(cwd, '.omx', 'specs');
+}
+
+export function isCanonicalBrainstormArtifactPath(reportPath: string, cwd = process.cwd()): boolean {
+  const resolvedPath = resolve(cwd, reportPath);
+  const specsDir = brainstormSpecsDir(cwd);
+  const relativePath = relative(specsDir, resolvedPath);
+  if (relativePath === '') return false;
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) return false;
+  return /^brainstorm-.*\.md$/i.test(basename(resolvedPath));
+}
+
+export function readBrainstormArtifact(reportPath: string, cwd = process.cwd()): BrainstormArtifactRecord | null {
+  const resolvedPath = resolve(cwd, reportPath);
+  const parsed = parsePlanningArtifactFileName(resolvedPath);
+  if (parsed?.kind !== 'brainstorm' || !existsSync(resolvedPath) || !isCanonicalBrainstormArtifactPath(resolvedPath, cwd)) {
+    return null;
+  }
+
+  try {
+    const content = readFileSync(resolvedPath, 'utf-8');
+    const normalized = normalizeMarkdown(content);
+    const title = normalized.match(/^#\s+Brainstorm Report:.*$/im)?.[0] ?? null;
+    const recommendationSection = extractMarkdownSection(normalized, /^##\s+9\.\s+Recommendation\s*$/i);
+    const ralplanHandoffSection = extractMarkdownSection(normalized, /^##\s+15\.\s+Ralplan Handoff\s*$/i);
+    const handoffDecisionSection = extractMarkdownSection(normalized, /^##\s+16\.\s+Handoff Decision\s*$/i);
+    const contract = parseArtifactContract(normalized);
+    const recordWithoutMissing = {
+      path: resolvedPath,
+      slug: parsed.slug,
+      timestamp: parsed.timestamp,
+      content,
+      title,
+      recommendationSection,
+      ralplanHandoffSection,
+      handoffDecisionSection,
+      approvedRecommendation: extractAnchoredValue(recommendationSection, 'Approved recommendation'),
+      suggestedNextCommand: extractAnchoredValue(ralplanHandoffSection, 'Suggested next command'),
+      handoffDecision: extractAnchoredValue(handoffDecisionSection, 'Handoff Decision'),
+      artifactType: contract.type,
+      artifactPath: contract.path,
+      artifactStatus: contract.status,
+      recommendedNextSkill: contract.recommendedNextSkill,
+    };
+
+    return {
+      ...recordWithoutMissing,
+      missingAnchors: collectBrainstormMissingAnchors(recordWithoutMissing, cwd),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function readLatestBrainstormArtifact(cwd: string): BrainstormArtifactRecord | null {
+  const latest = selectLatestPlanningArtifactPath(readPlanningArtifacts(cwd).brainstormPaths);
+  return latest ? readBrainstormArtifact(latest, cwd) : null;
+}
+
 export function readPlanningArtifacts(cwd: string): PlanningArtifacts {
   const plansDir = omxPlansDir(cwd);
-  const specsDir = join(cwd, '.omx', 'specs');
+  const specsDir = brainstormSpecsDir(cwd);
 
   return {
     plansDir,
@@ -97,6 +268,8 @@ export function readPlanningArtifacts(cwd: string): PlanningArtifacts {
     testSpecPaths: readMatchingPaths(plansDir, TEST_SPEC_PATTERN),
     deepInterviewSpecPaths: readMatchingPaths(specsDir, DEEP_INTERVIEW_SPEC_PATTERN)
       .filter((path) => parsePlanningArtifactFileName(path)?.kind === 'deep-interview'),
+    brainstormPaths: readMatchingPaths(specsDir, BRAINSTORM_SPEC_PATTERN)
+      .filter((path) => parsePlanningArtifactFileName(path)?.kind === 'brainstorm'),
   };
 }
 
