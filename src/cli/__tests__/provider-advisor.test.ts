@@ -4,7 +4,10 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { executeProviderAdvisor } from '../provider-advisor.js';
+import {
+  diagnoseProviderAdvisor,
+  executeProviderAdvisor,
+} from '../provider-advisor.js';
 
 async function initWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'omx-provider-advisor-test-'));
@@ -84,6 +87,31 @@ describe('provider advisor execution', () => {
       const artifact = await readFile(result.artifactPath, 'utf8');
       assert.match(artifact, /Missing required local CLI binary/i);
       assert.match(artifact, /Status: failed/);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('reports binary and script override readiness in doctor mode', async () => {
+    const repo = await initWorkspace();
+    try {
+      const scriptPath = await createFakeProviderScript(repo, 'claude');
+      const result = await diagnoseProviderAdvisor({
+        provider: 'claude',
+        cwd: repo,
+        env: {
+          ...process.env,
+          OMX_ASK_PROVIDER_CLAUDE_BIN: process.execPath,
+          OMX_ASK_PROVIDER_CLAUDE_SCRIPT: scriptPath,
+        },
+      });
+
+      assert.equal(result.ready, true);
+      assert.equal(result.binary.ready, true);
+      assert.equal(result.binary.configured, process.execPath);
+      assert.equal(result.script.overridden, true);
+      assert.equal(result.script.ready, true);
+      assert.equal(result.script.configured, scriptPath);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

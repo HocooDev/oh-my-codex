@@ -3,6 +3,10 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { slugifyMissionName } from "../autoresearch/contracts.js";
 import {
+	analyzeBrainstormRepoContext,
+	type BrainstormRepoContext,
+} from "./brainstorm-repo-context.js";
+import {
 	BRAINSTORM_ADVISOR_PROVIDERS,
 	BRAINSTORM_APPROVAL_STATES,
 	BRAINSTORM_NEXT_SKILLS,
@@ -277,6 +281,12 @@ export function selectedNextSkillForApprovalState(
 	return brainstormNextSkillForApprovalState(approvalState);
 }
 
+function isChineseBrainstormLanguage(
+	lang: ResolvedBrainstormLanguage,
+): boolean {
+	return lang === "zh-CN" || lang === "zh-TW";
+}
+
 function shouldReuseArtifact(record: BrainstormArtifactRecord | null): boolean {
 	if (!record) return false;
 	return (
@@ -311,8 +321,20 @@ function localizedCopy(lang: ResolvedBrainstormLanguage): {
 	advisorSummaryLabel: string;
 	advisorErrorLabel: string;
 	advisorExitCodeLabel: string;
+	approvedRecommendationLabel: string;
+	suggestedNextCommandLabel: string;
+	handoffDecisionLabel: string;
+	nextActionsHeading: string;
+	recommendedActionLabel: string;
+	continueActionLabel: string;
+	deepInterviewActionLabel: string;
+	ralplanActionLabel: string;
+	stopActionLabel: string;
+	likelyTouchedModulesHeading: string;
+	relatedWorkflowsHeading: string;
+	repoConstraintsHeading: string;
 } {
-	if (lang === "zh-CN" || lang === "zh-TW") {
+	if (isChineseBrainstormLanguage(lang)) {
 		return {
 			currentUnderstanding:
 				"此草稿记录当前已知的想法、约束和待确认问题，作为后续审批与交接的基础。",
@@ -347,6 +369,18 @@ function localizedCopy(lang: ResolvedBrainstormLanguage): {
 			advisorSummaryLabel: "摘要",
 			advisorErrorLabel: "错误",
 			advisorExitCodeLabel: "退出码",
+			approvedRecommendationLabel: "批准建议",
+			suggestedNextCommandLabel: "建议下一条命令",
+			handoffDecisionLabel: "交接决定",
+			nextActionsHeading: "下一步操作",
+			recommendedActionLabel: "推荐动作",
+			continueActionLabel: "继续这一轮 brainstorm",
+			deepInterviewActionLabel: "批准交给 deep-interview",
+			ralplanActionLabel: "批准交给 ralplan",
+			stopActionLabel: "停止",
+			likelyTouchedModulesHeading: "可能受影响的模块",
+			relatedWorkflowsHeading: "现有相关工作流",
+			repoConstraintsHeading: "当前仓库/运行时约束",
 		};
 	}
 
@@ -386,6 +420,18 @@ function localizedCopy(lang: ResolvedBrainstormLanguage): {
 		advisorSummaryLabel: "Summary",
 		advisorErrorLabel: "Error",
 		advisorExitCodeLabel: "Exit code",
+		approvedRecommendationLabel: "Approved recommendation",
+		suggestedNextCommandLabel: "Suggested next command",
+		handoffDecisionLabel: "Handoff Decision",
+		nextActionsHeading: "Next Actions",
+		recommendedActionLabel: "Recommended action",
+		continueActionLabel: "Continue this brainstorm",
+		deepInterviewActionLabel: "Approve for deep-interview",
+		ralplanActionLabel: "Approve for ralplan",
+		stopActionLabel: "Stop",
+		likelyTouchedModulesHeading: "Likely Touched Modules",
+		relatedWorkflowsHeading: "Existing Related Workflows",
+		repoConstraintsHeading: "Current Repo Constraints",
 	};
 }
 
@@ -433,6 +479,137 @@ function suggestedNextCommand(
 	}
 }
 
+function visibleLabeledLine(
+	lang: ResolvedBrainstormLanguage,
+	englishLabel: string,
+	localizedLabel: string,
+	value: string,
+): string {
+	if (!isChineseBrainstormLanguage(lang)) {
+		return `${englishLabel}: ${value}`;
+	}
+	return `<!-- ${englishLabel}: ${value} -->\n${localizedLabel}：${value}`;
+}
+
+function approvedRecommendationLine(
+	lang: ResolvedBrainstormLanguage,
+	value: string,
+): string {
+	const copy = localizedCopy(lang);
+	return visibleLabeledLine(
+		lang,
+		"Approved recommendation",
+		copy.approvedRecommendationLabel,
+		value,
+	);
+}
+
+function suggestedNextCommandLine(
+	lang: ResolvedBrainstormLanguage,
+	value: string,
+): string {
+	const copy = localizedCopy(lang);
+	return visibleLabeledLine(
+		lang,
+		"Suggested next command",
+		copy.suggestedNextCommandLabel,
+		value,
+	);
+}
+
+function handoffDecisionLine(
+	lang: ResolvedBrainstormLanguage,
+	value: string,
+): string {
+	const copy = localizedCopy(lang);
+	return visibleLabeledLine(
+		lang,
+		"Handoff Decision",
+		copy.handoffDecisionLabel,
+		value,
+	);
+}
+
+interface BrainstormNextAction {
+	label: string;
+	command: string;
+	recommended: boolean;
+}
+
+function brainstormNextActions(input: {
+	approvalState: BrainstormApprovalState;
+	artifactRelativePath: string;
+	idea: string;
+	slug: string;
+	lang: ResolvedBrainstormLanguage;
+}): BrainstormNextAction[] {
+	const copy = localizedCopy(input.lang);
+	return [
+		{
+			label: copy.continueActionLabel,
+			command: `omx brainstorm resume --slug ${input.slug}`,
+			recommended:
+				input.approvalState === "draft" ||
+				input.approvalState === "continue_exploring",
+		},
+		{
+			label: copy.deepInterviewActionLabel,
+			command: suggestedNextCommand(
+				"approved_for_deep_interview",
+				input.artifactRelativePath,
+				input.idea,
+				input.slug,
+			),
+			recommended: input.approvalState === "approved_for_deep_interview",
+		},
+		{
+			label: copy.ralplanActionLabel,
+			command: suggestedNextCommand(
+				"approved_for_ralplan",
+				input.artifactRelativePath,
+				input.idea,
+				input.slug,
+			),
+			recommended: input.approvalState === "approved_for_ralplan",
+		},
+		{
+			label: copy.stopActionLabel,
+			command: suggestedNextCommand(
+				"stopped",
+				input.artifactRelativePath,
+				input.idea,
+				input.slug,
+			),
+			recommended: input.approvalState === "stopped",
+		},
+	];
+}
+
+function buildNextActionsSection(input: {
+	compileTarget: BrainstormDraftCompileTarget;
+	artifactRelativePath: string;
+	approvalState: BrainstormApprovalState;
+}): string[] {
+	const copy = localizedCopy(input.compileTarget.lang);
+	const recommendedPrefix = isChineseBrainstormLanguage(input.compileTarget.lang)
+		? `${copy.recommendedActionLabel}：`
+		: `${copy.recommendedActionLabel}: `;
+	const actions = brainstormNextActions({
+		approvalState: input.approvalState,
+		artifactRelativePath: input.artifactRelativePath,
+		idea: input.compileTarget.idea,
+		slug: input.compileTarget.slug,
+		lang: input.compileTarget.lang,
+	});
+
+	return [
+		`### ${copy.nextActionsHeading}`,
+		...actions.map((action) =>
+			`- ${action.recommended ? recommendedPrefix : ""}${action.label} -> ${action.command}`,
+		),
+	];
+}
+
 function artifactContractValue(value: string | number | null | undefined): string {
 	if (value == null) return "none";
 	const normalized = String(value).trim();
@@ -473,6 +650,25 @@ function advisorDetailFallback(
 		return run.summary ?? run.error ?? copy.advisorFailed;
 	}
 	return copy.advisorSucceeded;
+}
+
+function localizedAdvisorVisibleSummary(
+	provider: BrainstormAdvisorProvider,
+	run: BrainstormAdvisorRun,
+	lang: ResolvedBrainstormLanguage,
+): string {
+	const copy = localizedCopy(lang);
+	const summary = run.summary?.trim();
+	if (!summary) return advisorDetailFallback(run, lang);
+	if (summary === "Advisor not requested.") {
+		return copy.advisorNotRequested;
+	}
+	if (
+		summary === `Advisor ${provider} requested, but no artifact was recorded yet.`
+	) {
+		return copy.advisorPending;
+	}
+	return summary;
 }
 
 function stripAfterMarkerList(value: string, markers: readonly string[]): string {
@@ -557,7 +753,10 @@ function defaultRenderedSections(
 		constraints: compileTarget.constraints || copy.constraintsFallback,
 		openQuestions: compileTarget.openQuestions || copy.openQuestionsFallback,
 		candidateSolutions: copy.candidateSolutions,
-		recommendation: `Approved recommendation: ${copy.recommendation}`,
+		recommendation: approvedRecommendationLine(
+			compileTarget.lang,
+			copy.recommendation,
+		),
 		risks: copy.risks,
 		testing: copy.testing,
 	};
@@ -628,11 +827,12 @@ function buildAdvisorAwareSections(
 					: "- 推荐先围绕该顾问强调的方向收敛，并用现有约束筛掉不合适方案。",
 			]),
 			recommendation: joinParagraphs([
-				`Approved recommendation: ${
+				approvedRecommendationLine(
+					compileTarget.lang,
 					evidence.length >= 2
 						? "优先采用顾问共识覆盖的主方向，同时把各自强调的差异点显式纳入后续澄清与规划。"
-						: "优先采用成功顾问强化过的方向，并在进入下游流程前补足验证项。"
-				}`,
+						: "优先采用成功顾问强化过的方向，并在进入下游流程前补足验证项。",
+				),
 				"支撑证据：",
 				bulletize(providerSummaries),
 			]),
@@ -700,11 +900,12 @@ function buildAdvisorAwareSections(
 				: "- Default direction: converge on the successful advisor's emphasis first, then validate it against the recorded constraints.",
 		]),
 		recommendation: joinParagraphs([
-			`Approved recommendation: ${
+			approvedRecommendationLine(
+				compileTarget.lang,
 				evidence.length >= 2
 					? "Prefer the shared direction supported by both advisors, then resolve provider-specific differences during deep-interview or ralplan."
-					: "Prefer the direction reinforced by the successful advisor, then verify the remaining assumptions before approval."
-			}`,
+					: "Prefer the direction reinforced by the successful advisor, then verify the remaining assumptions before approval.",
+			),
 			"Supporting evidence:",
 			bulletize(providerSummaries),
 		]),
@@ -750,7 +951,11 @@ function buildAdvisorSection(
 			`  - ${copy.advisorExitCodeLabel}: ${run.exitCode ?? advisorDetailFallback(run, compileTarget.lang)}`,
 		);
 		lines.push(
-			`  - ${copy.advisorSummaryLabel}: ${run.summary ?? advisorDetailFallback(run, compileTarget.lang)}`,
+			`  - ${copy.advisorSummaryLabel}: ${localizedAdvisorVisibleSummary(
+				provider,
+				run,
+				compileTarget.lang,
+			)}`,
 		);
 		if (run.error) {
 			lines.push(`  - ${copy.advisorErrorLabel}: ${run.error}`);
@@ -762,6 +967,7 @@ function buildAdvisorSection(
 
 function buildContextSnapshotContent(
 	compileTarget: BrainstormDraftCompileTarget,
+	repoContext: BrainstormRepoContext,
 ): string {
 	const copy = localizedCopy(compileTarget.lang);
 	return [
@@ -788,9 +994,17 @@ function buildContextSnapshotContent(
 		compileTarget.openQuestions || copy.openQuestionsFallback,
 		"",
 		"## Likely Codebase Touchpoints",
-		"- `.omx/context/` for snapshot reuse",
-		"- `.omx/specs/brainstorm-<timestamp>-<slug>.md` for the canonical design artifact",
-		"- `.omx/state/brainstorm-state.json` for brainstorm mode state",
+		...repoContext.likelyTouchedModules.map(
+			(entry) => `- ${entry.path} — ${entry.reason}`,
+		),
+		"",
+		"## Existing Related Workflows",
+		...repoContext.relatedWorkflows.map(
+			(entry) => `- ${entry.name} — ${entry.summary}`,
+		),
+		"",
+		"## Current Repo Constraints",
+		...repoContext.currentRepoConstraints.map((entry) => `- ${entry}`),
 		"",
 	].join("\n");
 }
@@ -811,11 +1025,12 @@ async function latestContextSnapshotPath(
 
 export async function ensureBrainstormContextSnapshot(
 	compileTarget: BrainstormDraftCompileTarget,
+	repoContext: BrainstormRepoContext,
 	now: Date = new Date(),
 ): Promise<string> {
 	const dir = contextDir(compileTarget.repoRoot);
 	await mkdir(dir, { recursive: true });
-	const expectedContent = buildContextSnapshotContent(compileTarget);
+	const expectedContent = buildContextSnapshotContent(compileTarget, repoContext);
 
 	const existing = await latestContextSnapshotPath(
 		compileTarget.repoRoot,
@@ -850,6 +1065,7 @@ function buildArtifactPath(
 
 function buildBrainstormReportContent(input: {
 	compileTarget: BrainstormDraftCompileTarget;
+	repoContext: BrainstormRepoContext;
 	artifactPath: string;
 	contextSnapshotPath: string;
 	approvalState: BrainstormApprovalState;
@@ -889,6 +1105,11 @@ function buildBrainstormReportContent(input: {
 		compileTarget,
 		advisorRuns,
 	);
+	const nextActions = buildNextActionsSection({
+		compileTarget,
+		artifactRelativePath,
+		approvalState,
+	});
 
 	return [
 		`# Brainstorm Report: ${truncateTitle(compileTarget.idea)}`,
@@ -903,6 +1124,19 @@ function buildBrainstormReportContent(input: {
 		`- Context snapshot: ${contextRelativePath}`,
 		`- Language: ${compileTarget.lang}`,
 		`- Advisor flags: claude=${String(compileTarget.advisorFlags.withClaude)}, gemini=${String(compileTarget.advisorFlags.withGemini)}`,
+		"",
+		`### ${copy.likelyTouchedModulesHeading}`,
+		...input.repoContext.likelyTouchedModules.map(
+			(entry) => `- ${entry.path} — ${entry.reason}`,
+		),
+		"",
+		`### ${copy.relatedWorkflowsHeading}`,
+		...input.repoContext.relatedWorkflows.map(
+			(entry) => `- ${entry.name} — ${entry.summary}`,
+		),
+		"",
+		`### ${copy.repoConstraintsHeading}`,
+		...input.repoContext.currentRepoConstraints.map((entry) => `- ${entry}`),
 		"",
 		"## 4. Goals",
 		renderedSections.goals,
@@ -938,14 +1172,16 @@ function buildBrainstormReportContent(input: {
 		renderedSections.testing,
 		"",
 		"## 15. Ralplan Handoff",
-		`Suggested next command: ${command}`,
+		suggestedNextCommandLine(compileTarget.lang, command),
 		`Recommended next skill: ${recommendedNextSkill}`,
 		"",
 		"## 16. Handoff Decision",
-		`Handoff Decision: ${handoffDecision}`,
+		handoffDecisionLine(compileTarget.lang, handoffDecision),
 		`Approval state: ${approvalState}`,
 		`Selected next skill: ${selectedNextSkill}`,
 		`Context snapshot path: ${contextRelativePath}`,
+		"",
+		...nextActions,
 		"",
 		...buildAdvisorSection(compileTarget, advisorRuns),
 		"artifact:",
@@ -1016,9 +1252,17 @@ export async function writeBrainstormArtifact(input: {
 			withGemini: input.advisorFlags?.withGemini === true,
 		},
 	};
+	const repoContext = await analyzeBrainstormRepoContext({
+		repoRoot: input.repoRoot,
+		idea,
+		desiredOutcome: compileTarget.desiredOutcome,
+		constraints: compileTarget.constraints,
+		openQuestions: compileTarget.openQuestions,
+	});
 
 	const contextSnapshotPath = await ensureBrainstormContextSnapshot(
 		compileTarget,
+		repoContext,
 		input.now,
 	);
 	const approvalState = input.approvalState ?? "draft";
@@ -1033,6 +1277,7 @@ export async function writeBrainstormArtifact(input: {
 	await mkdir(specsDir(input.repoRoot), { recursive: true });
 	const content = buildBrainstormReportContent({
 		compileTarget,
+		repoContext,
 		artifactPath,
 		contextSnapshotPath,
 		approvalState,

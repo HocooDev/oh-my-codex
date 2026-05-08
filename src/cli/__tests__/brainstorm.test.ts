@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
 	BRAINSTORM_HELP,
 	parseBrainstormArgs,
+	parseBrainstormDoctorArgs,
 	parseBrainstormHistoryArgs,
 	parseBrainstormListArgs,
 	parseBrainstormResumeArgs,
@@ -129,6 +130,7 @@ describe("brainstorm CLI parsing", () => {
 			},
 		);
 		assert.deepEqual(parseBrainstormListArgs(["--json"]), { json: true });
+		assert.deepEqual(parseBrainstormDoctorArgs(["--json"]), { json: true });
 		assert.deepEqual(
 			parseBrainstormHistoryArgs(["--slug", "search-ux", "--json"]),
 			{
@@ -144,6 +146,10 @@ describe("brainstorm CLI parsing", () => {
 			() => parseBrainstormHistoryArgs(["--json"]),
 			/Missing required --slug/i,
 		);
+		assert.throws(
+			() => parseBrainstormDoctorArgs(["--bogus"]),
+			/Unknown brainstorm doctor flag/i,
+		);
 	});
 
 	it("keeps dedicated local help text", () => {
@@ -155,6 +161,7 @@ describe("brainstorm CLI parsing", () => {
 		assert.match(BRAINSTORM_HELP, /omx brainstorm resume --slug/i);
 		assert.match(BRAINSTORM_HELP, /omx brainstorm list \[--json\]/i);
 		assert.match(BRAINSTORM_HELP, /omx brainstorm history --slug/i);
+		assert.match(BRAINSTORM_HELP, /omx brainstorm doctor \[--json\]/i);
 	});
 });
 
@@ -201,6 +208,46 @@ describe("brainstorm CLI surface", () => {
 				result.stdout,
 				/omx brainstorm - Guided brainstorm artifact runtime/i,
 			);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("runs brainstorm doctor with stable json output", async () => {
+		const cwd = await initRepo();
+		try {
+			const scriptPath = join(cwd, "claude-doctor-stub.js");
+			await writeFile(
+				scriptPath,
+				'console.log("claude stub");\n',
+				"utf-8",
+			);
+			const result = runOmx(
+				cwd,
+				["brainstorm", "doctor", "--json"],
+				{
+					OMX_ASK_PROVIDER_CLAUDE_BIN: process.execPath,
+					OMX_ASK_PROVIDER_CLAUDE_SCRIPT: scriptPath,
+					OMX_ASK_PROVIDER_GEMINI_BIN: "definitely-missing-gemini-binary",
+				},
+			);
+			assert.equal(result.status, 0, result.stderr || result.stdout);
+			const parsed = JSON.parse(result.stdout) as {
+				providers: Record<
+					string,
+					{
+						ready: boolean;
+						binary: { configured: string | null; ready: boolean };
+						script: { configured: string | null; overridden: boolean; ready: boolean };
+					}
+				>;
+				nextSteps: string[];
+			};
+			assert.equal(parsed.providers.claude.ready, true);
+			assert.equal(parsed.providers.claude.binary.configured, process.execPath);
+			assert.equal(parsed.providers.claude.script.overridden, true);
+			assert.equal(parsed.providers.gemini.binary.ready, false);
+			assert.ok(parsed.nextSteps.length > 0);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -346,6 +393,8 @@ describe("brainstorm CLI surface", () => {
 			assert.equal(latest.status, 0, latest.stderr || latest.stdout);
 			assert.match(latest.stdout, /Brainstorm status: approved_for_ralplan/);
 			assert.match(latest.stdout, /Advisor claude: failed/);
+			assert.match(latest.stdout, /Next actions:/);
+			assert.match(latest.stdout, /Recommended: Approve for ralplan -> \$ralplan --from-design/);
 			assert.equal(
 				existsSync(join(cwd, ".omx", "state", "deep-interview-state.json")),
 				false,
@@ -401,6 +450,8 @@ describe("brainstorm CLI surface", () => {
 			assert.equal(resumed.status, 0, resumed.stderr || resumed.stdout);
 			assert.match(resumed.stdout, /approved brainstorm artifact/i);
 			assert.match(resumed.stdout, /Resumed from:/i);
+			assert.match(resumed.stdout, /Next actions:/);
+			assert.match(resumed.stdout, /Recommended: Continue this brainstorm -> omx brainstorm resume --slug search-ux/);
 
 			const specsDir = join(cwd, ".omx", "specs");
 			const entries = await readdir(specsDir);
@@ -438,6 +489,8 @@ describe("brainstorm CLI surface", () => {
 			]);
 			assert.equal(result.status, 0, result.stderr || result.stdout);
 			assert.match(result.stdout, /Approval state: draft/);
+			assert.match(result.stdout, /Next actions:/);
+			assert.match(result.stdout, /Recommended: Continue this brainstorm -> omx brainstorm resume --slug seed-ci/);
 
 			const state = JSON.parse(
 				await readFile(

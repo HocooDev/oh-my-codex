@@ -498,6 +498,7 @@ function advisorRunFromExecutionResult(
 function failedAdvisorRun(
 	provider: BrainstormAdvisorProvider,
 	error: unknown,
+	lang: ResolvedBrainstormLanguage,
 ): BrainstormAdvisorRun {
 	const message = errorMessage(error);
 	return {
@@ -505,10 +506,23 @@ function failedAdvisorRun(
 		status: "failed",
 		artifactPath: null,
 		exitCode: null,
-		summary: `Advisor ${provider} failed before producing an artifact.`,
+		summary:
+			lang === "zh-CN" || lang === "zh-TW"
+				? `顾问 ${provider} 在生成产物前失败。`
+				: `Advisor ${provider} failed before producing an artifact.`,
 		error: message,
 		actionItems: [],
 	};
+}
+
+function advisorFailureWarning(
+	provider: BrainstormAdvisorProvider,
+	detail: string,
+	lang: ResolvedBrainstormLanguage,
+): string {
+	return lang === "zh-CN" || lang === "zh-TW"
+		? `[omx] 警告：brainstorm 顾问 ${provider} 执行失败，但主流程会继续（${detail}）。`
+		: `[omx] warning: brainstorm advisor ${provider} failed and the runtime will continue (${detail}).`;
 }
 
 async function runBrainstormAdvisors(
@@ -546,14 +560,18 @@ async function runBrainstormAdvisors(
 				});
 				if (result.status === "failed") {
 					console.warn(
-						`[omx] warning: brainstorm advisor ${provider} failed and the runtime will continue (${result.summary}).`,
+						advisorFailureWarning(provider, result.summary, input.lang),
 					);
 				}
 				return [provider, advisorRunFromExecutionResult(result)] as const;
 			} catch (error) {
-				const failed = failedAdvisorRun(provider, error);
+				const failed = failedAdvisorRun(provider, error, input.lang);
 				console.warn(
-					`[omx] warning: brainstorm advisor ${provider} failed and the runtime will continue (${failed.error ?? failed.summary}).`,
+					advisorFailureWarning(
+						provider,
+						failed.error ?? failed.summary ?? "Advisor failed.",
+						input.lang,
+					),
 				);
 				return [provider, failed] as const;
 			}
@@ -562,7 +580,11 @@ async function runBrainstormAdvisors(
 
 	const fallbackRuns = {
 		claude: input.withClaude
-			? failedAdvisorRun("claude", "Advisor execution did not produce a result.")
+			? failedAdvisorRun(
+					"claude",
+					"Advisor execution did not produce a result.",
+					input.lang,
+				)
 			: {
 					enabled: false,
 					status: "skipped" as const,
@@ -573,7 +595,11 @@ async function runBrainstormAdvisors(
 					actionItems: [],
 				},
 		gemini: input.withGemini
-			? failedAdvisorRun("gemini", "Advisor execution did not produce a result.")
+			? failedAdvisorRun(
+					"gemini",
+					"Advisor execution did not produce a result.",
+					input.lang,
+				)
 			: {
 					enabled: false,
 					status: "skipped" as const,

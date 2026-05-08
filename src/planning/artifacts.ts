@@ -175,7 +175,11 @@ function extractMarkdownSection(content: string, headingPattern: RegExp): string
 function extractAnchoredValue(section: string, label: string): string | null {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = section.match(new RegExp(`^\\s*(?:-\\s*)?${escaped}:\\s*(.+?)\\s*$`, 'im'));
-  return match?.[1]?.trim() || null;
+  if (match?.[1]?.trim()) {
+    return match[1].trim();
+  }
+  const commented = section.match(new RegExp(`<!--\\s*${escaped}:\\s*(.+?)\\s*-->`, 'i'));
+  return commented?.[1]?.trim() || null;
 }
 
 function parseArtifactContract(content: string): {

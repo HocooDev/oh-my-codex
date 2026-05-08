@@ -397,6 +397,29 @@ describe("brainstorm guided runtime", () => {
 		}
 	});
 
+	it("localizes visible handoff copy and CTA blocks in zh-CN while keeping machine anchors stable", async () => {
+		const repo = await initWorkspace();
+		try {
+			const result = await createSeededBrainstormDraft(repo, {
+				idea: "统一中文体验",
+				slug: "zh-copy",
+				lang: "zh-CN",
+			});
+
+			const content = await readFile(result.brainstormArtifactPath, "utf-8");
+			assert.match(content, /<!-- Approved recommendation: /);
+			assert.match(content, /批准建议：/);
+			assert.match(content, /<!-- Suggested next command: /);
+			assert.match(content, /建议下一条命令：/);
+			assert.match(content, /<!-- Handoff Decision: /);
+			assert.match(content, /交接决定：/);
+			assert.match(content, /### 下一步操作/);
+			assert.match(content, /推荐动作：继续这一轮 brainstorm/);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
 	it("records successful advisor artifacts in brainstorm state and markdown", async () => {
 		const repo = await initWorkspace();
 		try {
@@ -877,6 +900,56 @@ describe("brainstorm guided runtime", () => {
 				content,
 				/Approved recommendation: Lock the current direction and approval state/i,
 			);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("adds repo-aware live scan sections from real repository files", async () => {
+		const repo = await initWorkspace();
+		try {
+			await mkdir(join(repo, "src", "cli"), { recursive: true });
+			await mkdir(join(repo, "docs"), { recursive: true });
+			await writeFile(
+				join(repo, "src", "cli", "brainstorm.ts"),
+				"export const marker = 'brainstorm doctor provider';\n",
+				"utf-8",
+			);
+			await writeFile(
+				join(repo, "docs", "brainstorm.md"),
+				"# brainstorm doctor\nprovider localization repo constraints\n",
+				"utf-8",
+			);
+			await writeFile(
+				join(repo, "package.json"),
+				'{"name":"repo-aware-test","scripts":{"test":"node --test"}}\n',
+				"utf-8",
+			);
+			await writeFile(
+				join(repo, "tsconfig.json"),
+				'{"compilerOptions":{"target":"ES2022"}}\n',
+				"utf-8",
+			);
+
+			const result = await createSeededBrainstormDraft(repo, {
+				idea: "Improve brainstorm doctor provider localization",
+				slug: "repo-aware",
+				lang: "en",
+			});
+
+			const content = await readFile(result.brainstormArtifactPath, "utf-8");
+			assert.match(content, /### Likely Touched Modules/);
+			assert.match(content, /src\/cli\/brainstorm\.ts — matches:/);
+			assert.match(content, /docs\/brainstorm\.md — matches:/);
+			assert.match(content, /### Existing Related Workflows/);
+			assert.match(content, /brainstorm — Artifact-first design exploration/);
+			assert.match(content, /### Current Repo Constraints/);
+			assert.match(content, /`package\.json` present/);
+			assert.match(content, /`tsconfig\.json` present/);
+
+			const snapshot = await readFile(result.contextSnapshotPath, "utf-8");
+			assert.match(snapshot, /## Existing Related Workflows/);
+			assert.match(snapshot, /## Current Repo Constraints/);
 		} finally {
 			await rm(repo, { recursive: true, force: true });
 		}

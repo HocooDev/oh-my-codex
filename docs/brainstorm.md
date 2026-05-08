@@ -33,6 +33,7 @@ surface:
 omx brainstorm init [--idea <text>] [--slug <slug>] [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini]
 omx brainstorm resume --slug <slug> [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini]
 omx brainstorm status [--slug <slug> | --latest] [--json]
+omx brainstorm doctor [--json]
 omx brainstorm list [--json]
 omx brainstorm history --slug <slug> [--json]
 ```
@@ -61,6 +62,21 @@ Continues an existing brainstorm by slug.
 Reads the latest matching artifact plus compatible state metadata.
 
 Use it when you already know the slug and want the current handoff state.
+
+Human-readable output now includes a `Next actions` block so the shell output
+shows the current continue / handoff / stop options directly.
+
+### `doctor`
+
+Preflights the local Claude/Gemini advisor surfaces without writing a brainstorm
+artifact.
+
+Use it when you want to verify:
+
+- whether `claude` is executable
+- whether `gemini` is executable
+- whether provider binary/script overrides are active
+- what to fix before rerunning brainstorm with advisor flags
 
 ### `list`
 
@@ -109,6 +125,7 @@ omx brainstorm history --slug rollout-strategy
 
 ```bash
 omx brainstorm status --slug rollout-strategy --json
+omx brainstorm doctor --json
 omx brainstorm list --json
 omx brainstorm history --slug rollout-strategy --json
 ```
@@ -123,6 +140,18 @@ Behavior:
 - successful advisor input is folded into the core brainstorm sections
 - advisor failure is recorded as metadata and warnings only
 - advisor failure does **not** abort the main brainstorm artifact
+- `omx brainstorm doctor` reports actionable CLI / override issues before you
+  launch advisor-backed drafts
+
+## Next actions and repo-aware output
+
+Each canonical brainstorm markdown now includes:
+
+- an explicit `Next Actions` block under the handoff section
+- localized visible CTA copy in Chinese mode while preserving stable machine
+  anchors for downstream parsing
+- a repo-aware context scan that surfaces likely touched modules, related
+  workflows, and current repo/runtime constraints from a live scan
 
 ## Artifact and state layout
 
