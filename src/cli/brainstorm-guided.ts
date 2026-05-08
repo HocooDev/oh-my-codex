@@ -18,7 +18,9 @@ import {
 	type BrainstormRecommendedNextSkill,
 	type BrainstormSeedInputs,
 	type BrainstormSelectedNextSkill,
+	type BrainstormResumeSeed,
 	type ResolvedBrainstormLanguage,
+	resolveBrainstormResumeSeed,
 	resolveBrainstormLanguage,
 	writeBrainstormArtifact,
 } from "./brainstorm-intake.js";
@@ -47,6 +49,8 @@ export interface InitBrainstormResult {
 	recommendedNextSkill: BrainstormRecommendedNextSkill;
 	selectedNextSkill: BrainstormSelectedNextSkill;
 	advisorRuns: BrainstormAdvisorRuns;
+	resumedFromArtifactPath?: string;
+	resumeNote?: string | null;
 }
 
 type BrainstormAdvisorRunner = (input: {
@@ -55,6 +59,11 @@ type BrainstormAdvisorRunner = (input: {
 	originalTask: string;
 	repoRoot: string;
 }) => Promise<ProviderAdvisorExecutionResult>;
+
+interface BrainstormWriteOptions {
+	forceNewArtifact?: boolean;
+	resumeSeed?: BrainstormResumeSeed;
+}
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -482,6 +491,7 @@ function advisorRunFromExecutionResult(
 		exitCode: result.exitCode,
 		summary: result.summary,
 		error: result.errorMessage,
+		actionItems: result.actionItems,
 	};
 }
 
@@ -497,6 +507,7 @@ function failedAdvisorRun(
 		exitCode: null,
 		summary: `Advisor ${provider} failed before producing an artifact.`,
 		error: message,
+		actionItems: [],
 	};
 }
 
@@ -559,6 +570,7 @@ async function runBrainstormAdvisors(
 					exitCode: null,
 					summary: "Advisor not requested.",
 					error: null,
+					actionItems: [],
 				},
 		gemini: input.withGemini
 			? failedAdvisorRun("gemini", "Advisor execution did not produce a result.")
@@ -569,6 +581,7 @@ async function runBrainstormAdvisors(
 					exitCode: null,
 					summary: "Advisor not requested.",
 					error: null,
+					actionItems: [],
 				},
 	} satisfies BrainstormAdvisorRuns;
 
@@ -597,6 +610,7 @@ export async function createSeededBrainstormDraft(
 	repoRoot: string,
 	seedInputs: BrainstormSeedInputs,
 	advisorRunner: BrainstormAdvisorRunner = defaultBrainstormAdvisorRunner,
+	writeOptions: BrainstormWriteOptions = {},
 ): Promise<InitBrainstormResult> {
 	const idea = seedInputs.idea?.trim() || "";
 	if (!idea) {
@@ -609,11 +623,15 @@ export async function createSeededBrainstormDraft(
 		idea,
 		slug,
 		lang: seedInputs.lang,
+		desiredOutcome: seedInputs.desiredOutcome,
+		constraints: seedInputs.constraints,
+		openQuestions: seedInputs.openQuestions,
 		advisorFlags: {
 			withClaude: seedInputs.withClaude === true,
 			withGemini: seedInputs.withGemini === true,
 		},
 		approvalState: "draft",
+		forceNewArtifact: writeOptions.forceNewArtifact,
 	});
 	const advisorRuns = await runBrainstormAdvisors(
 		repoRoot,
@@ -675,7 +693,31 @@ export async function createSeededBrainstormDraft(
 		recommendedNextSkill: draft.recommendedNextSkill,
 		selectedNextSkill: draft.selectedNextSkill,
 		advisorRuns: draft.advisorRuns,
+		resumedFromArtifactPath: writeOptions.resumeSeed?.sourceArtifact.path,
+		resumeNote: writeOptions.resumeSeed?.note ?? null,
 	};
+}
+
+export async function createResumedBrainstormDraft(
+	repoRoot: string,
+	input: {
+		slug: string;
+		lang?: BrainstormLanguage;
+		withClaude?: boolean;
+		withGemini?: boolean;
+	},
+	advisorRunner: BrainstormAdvisorRunner = defaultBrainstormAdvisorRunner,
+): Promise<InitBrainstormResult> {
+	const resumeSeed = resolveBrainstormResumeSeed(repoRoot, input);
+	return createSeededBrainstormDraft(
+		repoRoot,
+		resumeSeed.seedInputs,
+		advisorRunner,
+		{
+			forceNewArtifact: true,
+			resumeSeed,
+		},
+	);
 }
 
 export async function runBrainstormNoviceBridge(
@@ -684,6 +726,7 @@ export async function runBrainstormNoviceBridge(
 	io: BrainstormQuestionIO = createQuestionIO(),
 	structuredQuestion?: BrainstormStructuredQuestionAsker,
 	advisorRunner: BrainstormAdvisorRunner = defaultBrainstormAdvisorRunner,
+	writeOptions: BrainstormWriteOptions = {},
 ): Promise<InitBrainstormResult> {
 	if (!process.stdin.isTTY) {
 		throw new Error(
@@ -693,9 +736,9 @@ export async function runBrainstormNoviceBridge(
 
 	let idea = seedInputs.idea?.trim() || "";
 	let lang: BrainstormLanguage = seedInputs.lang ?? "auto";
-	let desiredOutcome = "";
-	let constraints = "";
-	let openQuestions = "";
+	let desiredOutcome = seedInputs.desiredOutcome?.trim() || "";
+	let constraints = seedInputs.constraints?.trim() || "";
+	let openQuestions = seedInputs.openQuestions?.trim() || "";
 	let modeActivated = false;
 	let advisorRuns: BrainstormAdvisorRuns | undefined;
 	const advisorFlags = {
@@ -770,6 +813,7 @@ export async function runBrainstormNoviceBridge(
 			lang,
 			advisorFlags,
 			approvalState: "draft",
+			forceNewArtifact: writeOptions.forceNewArtifact,
 		});
 
 		await withRepoLocalStateRoot(async () => {
@@ -900,6 +944,8 @@ export async function runBrainstormNoviceBridge(
 			recommendedNextSkill: finalized.recommendedNextSkill,
 			selectedNextSkill: finalized.selectedNextSkill,
 			advisorRuns: finalized.advisorRuns,
+			resumedFromArtifactPath: writeOptions.resumeSeed?.sourceArtifact.path,
+			resumeNote: writeOptions.resumeSeed?.note ?? null,
 		};
 	} catch (error) {
 		if (modeActivated) {
@@ -936,5 +982,29 @@ export async function guidedBrainstormSetup(
 		seedInputs,
 		createQuestionIO(),
 		createStructuredQuestionAsker(repoRoot),
+	);
+}
+
+export async function resumeBrainstormSetup(
+	repoRoot: string,
+	input: {
+		slug: string;
+		lang?: BrainstormLanguage;
+		withClaude?: boolean;
+		withGemini?: boolean;
+	},
+): Promise<InitBrainstormResult> {
+	await ensureStructuredQuestionFallbackAllowed(repoRoot);
+	const resumeSeed = resolveBrainstormResumeSeed(repoRoot, input);
+	return runBrainstormNoviceBridge(
+		repoRoot,
+		resumeSeed.seedInputs,
+		createQuestionIO(),
+		createStructuredQuestionAsker(repoRoot),
+		defaultBrainstormAdvisorRunner,
+		{
+			forceNewArtifact: true,
+			resumeSeed,
+		},
 	);
 }

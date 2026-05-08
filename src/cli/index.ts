@@ -179,7 +179,7 @@ Usage:
   omx cleanup   Kill orphaned OMX MCP server processes and remove stale OMX /tmp directories
   omx doctor --team  Check team/swarm runtime health diagnostics
   omx ask       Ask local provider CLI (claude|gemini) and write artifact output
-  omx brainstorm Guided brainstorm artifact runtime (init/status; no auto-launch)
+  omx brainstorm Guided brainstorm artifact runtime (init/resume/list/history/status; no auto-launch)
   omx question  OMX-owned blocking question UI entrypoint for agent-invoked user questions
   omx adapt     Scaffold OMX-owned adapter foundations for persistent external targets
   omx resume    Resume a previous interactive Codex session

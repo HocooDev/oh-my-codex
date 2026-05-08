@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { join, relative } from "node:path";
 import { slugifyMissionName } from "../autoresearch/contracts.js";
 import {
 	BRAINSTORM_ADVISOR_PROVIDERS,
@@ -11,6 +11,8 @@ import {
 	type BrainstormAdvisorRun,
 	type BrainstormAdvisorRuns,
 	type BrainstormArtifactRecord,
+	readBrainstormArtifactHistoryForSlug,
+	readBrainstormArtifacts,
 	type BrainstormSelectedNextSkill,
 	readLatestBrainstormArtifact,
 	readLatestBrainstormArtifactForSlug,
@@ -42,6 +44,49 @@ export interface BrainstormSeedInputs {
 	lang?: BrainstormLanguage;
 	withClaude?: boolean;
 	withGemini?: boolean;
+	desiredOutcome?: string;
+	constraints?: string;
+	openQuestions?: string;
+}
+
+export interface BrainstormArtifactListItem {
+	slug: string;
+	timestamp: string | null;
+	title: string | null;
+	artifactStatus: string | null;
+	approvalState: BrainstormApprovalState | null;
+	recommendedNextSkill: BrainstormRecommendedNextSkill | null;
+	artifactPath: string;
+}
+
+export interface BrainstormHistoryItem extends BrainstormArtifactListItem {
+	contextSnapshotPath: string | null;
+	advisorFlags: BrainstormAdvisorFlags;
+	advisorRuns: BrainstormAdvisorRuns | null;
+}
+
+export interface BrainstormListResult {
+	items: BrainstormArtifactListItem[];
+}
+
+export interface BrainstormHistoryResult {
+	slug: string;
+	items: BrainstormHistoryItem[];
+}
+
+export interface BrainstormResumeSeed {
+	sourceArtifact: BrainstormArtifactRecord;
+	seedInputs: Required<
+		Pick<
+			BrainstormSeedInputs,
+			"idea" | "slug" | "lang" | "withClaude" | "withGemini"
+		>
+	> &
+		Pick<
+			BrainstormSeedInputs,
+			"desiredOutcome" | "constraints" | "openQuestions"
+		>;
+	note: string | null;
 }
 
 export interface BrainstormDraftCompileTarget {
@@ -53,6 +98,17 @@ export interface BrainstormDraftCompileTarget {
 	lang: ResolvedBrainstormLanguage;
 	repoRoot: string;
 	advisorFlags: BrainstormAdvisorFlags;
+}
+
+interface BrainstormRenderedSections {
+	currentUnderstanding: string;
+	goals: string;
+	constraints: string;
+	openQuestions: string;
+	candidateSolutions: string;
+	recommendation: string;
+	risks: string;
+	testing: string;
 }
 
 export interface BrainstormArtifactDraft {
@@ -109,6 +165,11 @@ export function normalizeBrainstormAdvisorRuns(
 					normalizeAdvisorRunValue(current?.summary) ??
 					defaultAdvisorSummary(provider, enabled),
 				error: normalizeAdvisorRunValue(current?.error),
+				actionItems: Array.isArray(current?.actionItems)
+					? current.actionItems.filter(
+							(item): item is string => typeof item === "string" && item.trim().length > 0,
+						)
+					: [],
 			},
 		] as const satisfies readonly [BrainstormAdvisorProvider, BrainstormAdvisorRun];
 	});
@@ -118,6 +179,29 @@ export function normalizeBrainstormAdvisorRuns(
 
 function normalizeMarkdown(content: string): string {
 	return content.replace(/\r\n/g, "\n");
+}
+
+function extractMarkdownSection(content: string, headingPattern: RegExp): string {
+	const lines = normalizeMarkdown(content).split("\n");
+	const headingIndex = lines.findIndex((line) => headingPattern.test(line.trim()));
+	if (headingIndex < 0) return "";
+
+	const headingLevel = lines[headingIndex].match(/^(#+)/)?.[1].length ?? 1;
+	const body: string[] = [];
+	for (let index = headingIndex + 1; index < lines.length; index += 1) {
+		const nextHeading = lines[index].match(/^(#{1,6})\s+/);
+		if (nextHeading && nextHeading[1].length <= headingLevel) break;
+		body.push(lines[index]);
+	}
+	return body.join("\n").trim();
+}
+
+function cleanSectionText(value: string): string {
+	return normalizeMarkdown(value).trim();
+}
+
+function sentenceCaseProvider(provider: BrainstormAdvisorProvider): string {
+	return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
 function compactUtcTimestamp(now: Date = new Date()): string {
@@ -343,7 +427,7 @@ function suggestedNextCommand(
 		case "approved_for_ralplan":
 			return `$ralplan --from-design ${artifactRelativePath} "Turn the approved brainstorm direction into a PRD and test spec"`;
 		case "continue_exploring":
-			return `omx brainstorm init --slug ${slug} --idea "${safeIdea}"`;
+			return `omx brainstorm resume --slug ${slug}`;
 		default:
 			return "No follow-up command approved.";
 	}
@@ -378,6 +462,274 @@ function localizedAdvisorStatus(
 	return copy.advisorPending;
 }
 
+function advisorDetailFallback(
+	run: BrainstormAdvisorRun,
+	lang: ResolvedBrainstormLanguage,
+): string {
+	const copy = localizedCopy(lang);
+	if (!run.enabled) return copy.advisorNotRequested;
+	if (run.status === "pending") return copy.advisorPending;
+	if (run.status === "failed") {
+		return run.summary ?? run.error ?? copy.advisorFailed;
+	}
+	return copy.advisorSucceeded;
+}
+
+function stripAfterMarkerList(value: string, markers: readonly string[]): string {
+	const normalized = cleanSectionText(value);
+	if (!normalized) return "";
+	let bestIndex = normalized.length;
+	for (const marker of markers) {
+		const index = normalized.indexOf(marker);
+		if (index >= 0 && index < bestIndex) {
+			bestIndex = index;
+		}
+	}
+	return cleanSectionText(normalized.slice(0, bestIndex));
+}
+
+function joinParagraphs(parts: Array<string | null | undefined>): string {
+	return parts
+		.map((value) => cleanSectionText(value ?? ""))
+		.filter(Boolean)
+		.join("\n\n");
+}
+
+function dedupeLines(values: readonly string[]): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const value of values) {
+		const normalized = oneLine(value).toLowerCase();
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		result.push(value.trim());
+	}
+	return result;
+}
+
+function bulletize(values: readonly string[]): string {
+	return values.map((value) => `- ${value}`).join("\n");
+}
+
+function summarizeAdvisorEvidence(
+	run: BrainstormAdvisorRun,
+	provider: BrainstormAdvisorProvider,
+): string {
+	return (
+		run.summary?.trim() ||
+		`${sentenceCaseProvider(provider)} provided additional direction.`
+	);
+}
+
+function successfulAdvisorEvidence(
+	advisorRuns: BrainstormAdvisorRuns,
+): Array<{
+	provider: BrainstormAdvisorProvider;
+	summary: string;
+	actionItems: string[];
+}> {
+	return BRAINSTORM_ADVISOR_PROVIDERS.flatMap((provider) => {
+		const run = advisorRuns[provider];
+		if (!run.enabled || run.status !== "succeeded" || !run.artifactPath) {
+			return [];
+		}
+		return [
+			{
+				provider,
+				summary: summarizeAdvisorEvidence(run, provider),
+				actionItems: run.actionItems,
+			},
+		];
+	});
+}
+
+function defaultRenderedSections(
+	compileTarget: BrainstormDraftCompileTarget,
+): BrainstormRenderedSections {
+	const copy = localizedCopy(compileTarget.lang);
+	return {
+		currentUnderstanding:
+			compileTarget.desiredOutcome || copy.currentUnderstanding,
+		goals: joinParagraphs([
+			bulletize([compileTarget.desiredOutcome]),
+			copy.goals,
+		]),
+		constraints: compileTarget.constraints || copy.constraintsFallback,
+		openQuestions: compileTarget.openQuestions || copy.openQuestionsFallback,
+		candidateSolutions: copy.candidateSolutions,
+		recommendation: `Approved recommendation: ${copy.recommendation}`,
+		risks: copy.risks,
+		testing: copy.testing,
+	};
+}
+
+function buildAdvisorAwareSections(
+	compileTarget: BrainstormDraftCompileTarget,
+	advisorRuns: BrainstormAdvisorRuns,
+): BrainstormRenderedSections {
+	const defaults = defaultRenderedSections(compileTarget);
+	const evidence = successfulAdvisorEvidence(advisorRuns);
+	if (evidence.length === 0) return defaults;
+
+	const providerSummaries = evidence.map(
+		(entry) => `${sentenceCaseProvider(entry.provider)}: ${entry.summary}`,
+	);
+	const actionItems = dedupeLines(
+		evidence.flatMap((entry) =>
+			entry.actionItems.map(
+				(item) => `${sentenceCaseProvider(entry.provider)} follow-up: ${item}`,
+			),
+		),
+	);
+
+	if (compileTarget.lang === "zh-CN" || compileTarget.lang === "zh-TW") {
+		const consensusText =
+			evidence.length >= 2
+				? "顾问共识：两位顾问都认为当前方向需要在进入下游流程前，把关键权衡、风险和验证路径写得更明确。"
+				: "顾问判断：当前方向已经具备继续细化的价值，但应先把关键取舍写进主报告。";
+		const divergenceText =
+			evidence.length >= 2
+				? `主要分歧/强调点：\n${bulletize(providerSummaries)}`
+				: `外部顾问重点：\n${bulletize(providerSummaries)}`;
+
+		return {
+			currentUnderstanding: joinParagraphs([
+				compileTarget.desiredOutcome,
+				consensusText,
+				divergenceText,
+			]),
+			goals: joinParagraphs([
+				bulletize(
+					dedupeLines([
+						compileTarget.desiredOutcome,
+						"把顾问建议整合进主结论，而不是只保留在附录。",
+						evidence.length >= 2
+							? "明确记录顾问共识、分歧以及人工决策点。"
+							: "把单个顾问的关键建议转成可验证的设计目标。",
+					]),
+				),
+			]),
+			constraints: joinParagraphs([
+				compileTarget.constraints || localizedCopy(compileTarget.lang).constraintsFallback,
+				"新增顾问约束：",
+				bulletize(providerSummaries),
+			]),
+			openQuestions: joinParagraphs([
+				compileTarget.openQuestions || localizedCopy(compileTarget.lang).openQuestionsFallback,
+				actionItems.length > 0
+					? "顾问要求继续确认的问题：\n" + bulletize(actionItems)
+					: null,
+			]),
+			candidateSolutions: joinParagraphs([
+				"顾问驱动的候选方向：",
+				bulletize(providerSummaries),
+				evidence.length >= 2
+					? "- 共识方向：先沿两位顾问都支持的主线收敛，再把分歧点留给 deep-interview 或 ralplan。"
+					: "- 推荐先围绕该顾问强调的方向收敛，并用现有约束筛掉不合适方案。",
+			]),
+			recommendation: joinParagraphs([
+				`Approved recommendation: ${
+					evidence.length >= 2
+						? "优先采用顾问共识覆盖的主方向，同时把各自强调的差异点显式纳入后续澄清与规划。"
+						: "优先采用成功顾问强化过的方向，并在进入下游流程前补足验证项。"
+				}`,
+				"支撑证据：",
+				bulletize(providerSummaries),
+			]),
+			risks: joinParagraphs([
+				"顾问提示的主要风险：",
+				bulletize(providerSummaries),
+				actionItems.length > 0
+					? "缓解动作：\n" + bulletize(actionItems)
+					: null,
+			]),
+			testing: joinParagraphs([
+				"除原有 artifact/state 校验外，还应验证：",
+				bulletize(
+					dedupeLines([
+						...providerSummaries.map(
+							(summary) => `验证该顾问建议是否与仓库现状一致：${summary}`,
+						),
+						...actionItems,
+					]),
+				),
+			]),
+		};
+	}
+
+	const consensusText =
+		evidence.length >= 2
+			? "Advisor consensus: both successful advisors indicate that the direction should enter downstream workflows only after the trade-offs, risks, and validation steps are explicit in the main report."
+			: "Advisor readout: the current direction is viable, but the main report should absorb the advisor-backed trade-offs before approval.";
+	const divergenceText =
+		evidence.length >= 2
+			? `Primary differences in emphasis:\n${bulletize(providerSummaries)}`
+			: `Primary advisor emphasis:\n${bulletize(providerSummaries)}`;
+
+	return {
+		currentUnderstanding: joinParagraphs([
+			compileTarget.desiredOutcome,
+			consensusText,
+			divergenceText,
+		]),
+		goals: bulletize(
+			dedupeLines([
+				compileTarget.desiredOutcome,
+				"Fold successful advisor evidence into the core report instead of leaving it as appendix-only input.",
+				evidence.length >= 2
+					? "Capture advisor consensus, advisor-specific emphasis, and the human decision points that remain."
+					: "Turn the successful advisor guidance into explicit design goals and follow-up checks.",
+			]),
+		),
+		constraints: joinParagraphs([
+			compileTarget.constraints || localizedCopy(compileTarget.lang).constraintsFallback,
+			"Advisor-informed constraints:",
+			bulletize(providerSummaries),
+		]),
+		openQuestions: joinParagraphs([
+			compileTarget.openQuestions || localizedCopy(compileTarget.lang).openQuestionsFallback,
+			actionItems.length > 0
+				? "Advisor follow-up questions:\n" + bulletize(actionItems)
+				: null,
+		]),
+		candidateSolutions: joinParagraphs([
+			"Advisor-informed candidate directions:",
+			bulletize(providerSummaries),
+			evidence.length >= 2
+				? "- Consensus direction: follow the overlap between both advisors first, then carry the differences forward as explicit decision points."
+				: "- Default direction: converge on the successful advisor's emphasis first, then validate it against the recorded constraints.",
+		]),
+		recommendation: joinParagraphs([
+			`Approved recommendation: ${
+				evidence.length >= 2
+					? "Prefer the shared direction supported by both advisors, then resolve provider-specific differences during deep-interview or ralplan."
+					: "Prefer the direction reinforced by the successful advisor, then verify the remaining assumptions before approval."
+			}`,
+			"Supporting evidence:",
+			bulletize(providerSummaries),
+		]),
+		risks: joinParagraphs([
+			"Advisor-raised risks:",
+			bulletize(providerSummaries),
+			actionItems.length > 0
+				? "Mitigations and follow-up checks:\n" + bulletize(actionItems)
+				: null,
+		]),
+		testing: joinParagraphs([
+			"Beyond the normal artifact/state checks, validate:",
+			bulletize(
+				dedupeLines([
+					...providerSummaries.map(
+						(summary) =>
+							`Confirm the repo/runtime still supports this advisor-backed claim: ${summary}`,
+					),
+					...actionItems,
+				]),
+			),
+		]),
+	};
+}
+
 function buildAdvisorSection(
 	compileTarget: BrainstormDraftCompileTarget,
 	advisorRuns: BrainstormAdvisorRuns,
@@ -392,13 +744,13 @@ function buildAdvisorSection(
 		);
 		lines.push(`- ${provider}: ${localizedAdvisorStatus(run, compileTarget.lang)}`);
 		lines.push(
-			`  - ${copy.advisorArtifactLabel}: ${artifactPath ?? copy.advisorNotRequested}`,
+			`  - ${copy.advisorArtifactLabel}: ${artifactPath ?? advisorDetailFallback(run, compileTarget.lang)}`,
 		);
 		lines.push(
-			`  - ${copy.advisorExitCodeLabel}: ${run.exitCode ?? copy.advisorNotRequested}`,
+			`  - ${copy.advisorExitCodeLabel}: ${run.exitCode ?? advisorDetailFallback(run, compileTarget.lang)}`,
 		);
 		lines.push(
-			`  - ${copy.advisorSummaryLabel}: ${run.summary ?? copy.advisorNotRequested}`,
+			`  - ${copy.advisorSummaryLabel}: ${run.summary ?? advisorDetailFallback(run, compileTarget.lang)}`,
 		);
 		if (run.error) {
 			lines.push(`  - ${copy.advisorErrorLabel}: ${run.error}`);
@@ -533,6 +885,10 @@ function buildBrainstormReportContent(input: {
 		compileTarget.advisorFlags,
 		input.advisorRuns,
 	);
+	const renderedSections = buildAdvisorAwareSections(
+		compileTarget,
+		advisorRuns,
+	);
 
 	return [
 		`# Brainstorm Report: ${truncateTitle(compileTarget.idea)}`,
@@ -541,7 +897,7 @@ function buildBrainstormReportContent(input: {
 		compileTarget.idea,
 		"",
 		"## 2. Current Understanding",
-		compileTarget.desiredOutcome || copy.currentUnderstanding,
+		renderedSections.currentUnderstanding,
 		"",
 		"## 3. Context Scan",
 		`- Context snapshot: ${contextRelativePath}`,
@@ -549,23 +905,22 @@ function buildBrainstormReportContent(input: {
 		`- Advisor flags: claude=${String(compileTarget.advisorFlags.withClaude)}, gemini=${String(compileTarget.advisorFlags.withGemini)}`,
 		"",
 		"## 4. Goals",
-		`- ${compileTarget.desiredOutcome}`,
-		copy.goals,
+		renderedSections.goals,
 		"",
 		"## 5. Non-goals",
 		copy.nonGoals,
 		"",
 		"## 6. Constraints",
-		compileTarget.constraints || copy.constraintsFallback,
+		renderedSections.constraints,
 		"",
 		"## 7. Open Questions",
-		compileTarget.openQuestions || copy.openQuestionsFallback,
+		renderedSections.openQuestions,
 		"",
 		"## 8. Candidate Solutions",
-		copy.candidateSolutions,
+		renderedSections.candidateSolutions,
 		"",
 		"## 9. Recommendation",
-		`Approved recommendation: ${copy.recommendation}`,
+		renderedSections.recommendation,
 		"",
 		"## 10. Proposed Workflow",
 		copy.workflow,
@@ -577,10 +932,10 @@ function buildBrainstormReportContent(input: {
 		copy.integration,
 		"",
 		"## 13. Risks and Mitigations",
-		copy.risks,
+		renderedSections.risks,
 		"",
 		"## 14. Testing Strategy",
-		copy.testing,
+		renderedSections.testing,
 		"",
 		"## 15. Ralplan Handoff",
 		`Suggested next command: ${command}`,
@@ -603,6 +958,9 @@ function buildBrainstormReportContent(input: {
 		`  context_snapshot_path: ${contextRelativePath}`,
 		`  lang: ${compileTarget.lang}`,
 		`  artifact_written_at: ${input.artifactWrittenAt}`,
+		`  raw_desired_outcome: ${artifactContractValue(compileTarget.desiredOutcome)}`,
+		`  raw_constraints: ${artifactContractValue(compileTarget.constraints)}`,
+		`  raw_open_questions: ${artifactContractValue(compileTarget.openQuestions)}`,
 		...BRAINSTORM_ADVISOR_PROVIDERS.flatMap((provider) => {
 			const run = advisorRuns[provider];
 			return [
@@ -616,6 +974,9 @@ function buildBrainstormReportContent(input: {
 				)}`,
 				`  advisor_${provider}_summary: ${artifactContractValue(run.summary)}`,
 				`  advisor_${provider}_error: ${artifactContractValue(run.error)}`,
+				`  advisor_${provider}_action_items: ${artifactContractValue(
+					run.actionItems.length > 0 ? JSON.stringify(run.actionItems) : null,
+				)}`,
 			];
 		}),
 		"",
@@ -633,6 +994,7 @@ export async function writeBrainstormArtifact(input: {
 	advisorFlags?: Partial<BrainstormAdvisorFlags>;
 	advisorRuns?: Partial<BrainstormAdvisorRuns> | null;
 	approvalState?: BrainstormApprovalState;
+	forceNewArtifact?: boolean;
 	now?: Date;
 }): Promise<BrainstormArtifactDraft> {
 	const idea = input.idea.trim();
@@ -663,9 +1025,10 @@ export async function writeBrainstormArtifact(input: {
 	const nowStamp = compactUtcTimestamp(input.now);
 	const artifactWrittenAt = (input.now ?? new Date()).toISOString();
 	const latest = readLatestBrainstormArtifactForSlug(input.repoRoot, slug);
-	const artifactPath = shouldReuseArtifact(latest)
-		? latest!.path
-		: buildArtifactPath(input.repoRoot, slug, nowStamp);
+	const artifactPath =
+		!input.forceNewArtifact && shouldReuseArtifact(latest)
+			? latest!.path
+			: buildArtifactPath(input.repoRoot, slug, nowStamp);
 
 	await mkdir(specsDir(input.repoRoot), { recursive: true });
 	const content = buildBrainstormReportContent({
@@ -734,6 +1097,134 @@ function stateMatchesSelector(
 		);
 	}
 	return true;
+}
+
+function displayTitle(record: BrainstormArtifactRecord): string | null {
+	return record.title?.replace(/^#\s+Brainstorm Report:\s*/i, "").trim() || null;
+}
+
+function legacyResumeDesiredOutcome(record: BrainstormArtifactRecord): string {
+	return stripAfterMarkerList(record.currentUnderstandingSection, [
+		"\n\nAdvisor readout:",
+		"\n\nAdvisor consensus:",
+		"\n\n顾问判断：",
+		"\n\n顾问共识：",
+	]);
+}
+
+function legacyResumeConstraints(record: BrainstormArtifactRecord): string {
+	return stripAfterMarkerList(record.constraintsSection, [
+		"\n\nAdvisor-informed constraints:",
+		"\n\n新增顾问约束：",
+	]);
+}
+
+function legacyResumeOpenQuestions(record: BrainstormArtifactRecord): string {
+	return stripAfterMarkerList(record.openQuestionsSection, [
+		"\n\nAdvisor follow-up questions:",
+		"\n\n顾问要求继续确认的问题：",
+	]);
+}
+
+function advisorFlagsFromRuns(
+	advisorRuns: BrainstormAdvisorRuns | null,
+): BrainstormAdvisorFlags {
+	return {
+		withClaude: advisorRuns?.claude.enabled === true,
+		withGemini: advisorRuns?.gemini.enabled === true,
+	};
+}
+
+function listItemFromRecord(
+	record: BrainstormArtifactRecord,
+	repoRoot: string,
+): BrainstormArtifactListItem {
+	return {
+		slug: record.slug,
+		timestamp: record.timestamp ?? null,
+		title: displayTitle(record),
+		artifactStatus: record.artifactStatus,
+		approvalState: record.approvalState,
+		recommendedNextSkill: record.recommendedNextSkill,
+		artifactPath: relativeOmxPath(repoRoot, record.path),
+	};
+}
+
+export function listBrainstormArtifacts(repoRoot: string): BrainstormListResult {
+	return {
+		items: [...readBrainstormArtifacts(repoRoot)]
+			.reverse()
+			.map((record) => listItemFromRecord(record, repoRoot)),
+	};
+}
+
+export function readBrainstormHistory(
+	repoRoot: string,
+	slug: string,
+): BrainstormHistoryResult {
+	const normalizedSlug = slugifyMissionName(slug);
+	return {
+		slug: normalizedSlug,
+		items: readBrainstormArtifactHistoryForSlug(repoRoot, normalizedSlug)
+			.reverse()
+			.map((record) => ({
+				...listItemFromRecord(record, repoRoot),
+				contextSnapshotPath: record.contextSnapshotPath,
+				advisorFlags: advisorFlagsFromRuns(record.advisorRuns),
+				advisorRuns: record.advisorRuns,
+			})),
+	};
+}
+
+export function resolveBrainstormResumeSeed(
+	repoRoot: string,
+	input: {
+		slug: string;
+		lang?: BrainstormLanguage;
+		withClaude?: boolean;
+		withGemini?: boolean;
+	},
+): BrainstormResumeSeed {
+	const slug = slugifyMissionName(input.slug);
+	const sourceArtifact = readLatestBrainstormArtifactForSlug(repoRoot, slug);
+	if (!sourceArtifact) {
+		throw new Error(`No brainstorm artifact found for slug "${slug}".`);
+	}
+
+	const idea =
+		cleanSectionText(sourceArtifact.originalIdeaSection) ||
+		displayTitle(sourceArtifact) ||
+		sourceArtifact.slug;
+	const note =
+		sourceArtifact.approvalState === "approved_for_deep_interview" ||
+		sourceArtifact.approvalState === "approved_for_ralplan"
+			? "You are resuming from an approved brainstorm artifact. The resume flow will write a new latest draft version and keep the approved artifact unchanged."
+			: null;
+
+	return {
+		sourceArtifact,
+		seedInputs: {
+			idea,
+			slug,
+			lang:
+				input.lang ??
+				(sourceArtifact.lang as BrainstormLanguage | null) ??
+				"auto",
+			withClaude: input.withClaude === true,
+			withGemini: input.withGemini === true,
+			desiredOutcome: (
+				sourceArtifact.rawDesiredOutcome ??
+				legacyResumeDesiredOutcome(sourceArtifact)
+			) || idea,
+			constraints:
+				sourceArtifact.rawConstraints ??
+				legacyResumeConstraints(sourceArtifact),
+			openQuestions:
+				sourceArtifact.rawOpenQuestions ??
+				legacyResumeOpenQuestions(sourceArtifact),
+		},
+		note,
+	};
 }
 
 export async function resolveBrainstormStatus(

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import {
+	createResumedBrainstormDraft,
 	createSeededBrainstormDraft,
 	type BrainstormQuestionIO,
 	type BrainstormStructuredQuestionAsker,
@@ -781,6 +782,171 @@ describe("brainstorm guided runtime", () => {
 			) as Record<string, unknown>;
 			assert.equal(state.active, false);
 			assert.equal(state.current_phase, "draft_saved");
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("resumes from an approved artifact by writing a new draft version", async () => {
+		const repo = await initWorkspace();
+		try {
+			const original = await writeBrainstormArtifact({
+				repoRoot: repo,
+				idea: "Review search UX",
+				slug: "search-ux",
+				lang: "en",
+				desiredOutcome: "Approve a search UX direction",
+				constraints: "No new dependencies",
+				openQuestions: "Which workflow should follow?",
+				advisorFlags: { withClaude: true, withGemini: false },
+				advisorRuns: {
+					claude: {
+						enabled: true,
+						status: "succeeded",
+						artifactPath: ".omx/artifacts/ask-claude-test.md",
+						exitCode: 0,
+						summary: "Claude recommends a staged rollout with explicit observability gates.",
+						error: null,
+						actionItems: ["Verify observability before rollout."],
+					},
+					gemini: {
+						enabled: false,
+						status: "skipped",
+						artifactPath: null,
+						exitCode: null,
+						summary: "Advisor not requested.",
+						error: null,
+						actionItems: [],
+					},
+				},
+				approvalState: "approved_for_ralplan",
+				now: new Date("2026-05-08T01:02:03.000Z"),
+			});
+
+			const resumed = await createResumedBrainstormDraft(repo, {
+				slug: "search-ux",
+			});
+
+			assert.notEqual(resumed.brainstormArtifactPath, original.path);
+			assert.equal(resumed.approvalState, "draft");
+			assert.equal(resumed.resumedFromArtifactPath, original.path);
+			assert.match(String(resumed.resumeNote), /approved brainstorm artifact/i);
+			assert.equal(resumed.advisorRuns.claude.enabled, false);
+			assert.equal(resumed.advisorRuns.claude.status, "skipped");
+
+			const history = await resolveBrainstormStatus(repo, { slug: "search-ux" });
+			assert.equal(history.artifact?.path, resumed.brainstormArtifactPath);
+
+			const resumedContent = await readFile(resumed.brainstormArtifactPath, "utf-8");
+			assert.match(resumedContent, /approval_state: draft/);
+			assert.match(resumedContent, /No follow-up command approved\./);
+			assert.doesNotMatch(
+				resumedContent,
+				/Claude recommends a staged rollout with explicit observability gates\./,
+			);
+			assert.match(resumedContent, /raw_desired_outcome: Approve a search UX direction/);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps the default draft wording when no advisor succeeds", async () => {
+		const repo = await initWorkspace();
+		try {
+			const result = await createSeededBrainstormDraft(
+				repo,
+				{
+					idea: "Seed with no successful advisors",
+					slug: "seed-no-advisor-success",
+					lang: "en",
+					withClaude: true,
+				},
+				makeAdvisorRunner({
+					claude: {
+						status: "failed",
+						exitCode: 9,
+						summary: "Provider command failed (exit 9): auth missing",
+						errorMessage: "auth missing",
+					},
+				}),
+			);
+
+			const content = await readFile(result.brainstormArtifactPath, "utf-8");
+			assert.match(content, /Draft stage: candidate solutions will be expanded/i);
+			assert.match(
+				content,
+				/Approved recommendation: Lock the current direction and approval state/i,
+			);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("folds one successful advisor summary into the core brainstorm sections", async () => {
+		const repo = await initWorkspace();
+		try {
+			const result = await createSeededBrainstormDraft(
+				repo,
+				{
+					idea: "Seed with one successful advisor",
+					slug: "seed-one-advisor-success",
+					lang: "en",
+					withClaude: true,
+				},
+				makeAdvisorRunner({
+					claude: {
+						status: "succeeded",
+						summary: "Claude recommends a staged rollout with explicit observability gates.",
+					},
+				}),
+			);
+
+			const content = await readFile(result.brainstormArtifactPath, "utf-8");
+			assert.match(content, /Advisor readout:/);
+			assert.match(
+				content,
+				/Claude: Claude recommends a staged rollout with explicit observability gates\./,
+			);
+			assert.match(
+				content,
+				/Prefer the direction reinforced by the successful advisor/i,
+			);
+		} finally {
+			await rm(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("captures advisor consensus and differences when two advisors succeed", async () => {
+		const repo = await initWorkspace();
+		try {
+			const result = await createSeededBrainstormDraft(
+				repo,
+				{
+					idea: "Seed with two successful advisors",
+					slug: "seed-two-advisor-success",
+					lang: "en",
+					withClaude: true,
+					withGemini: true,
+				},
+				makeAdvisorRunner({
+					claude: {
+						status: "succeeded",
+						summary: "Claude prefers an incremental migration with rollback checkpoints.",
+					},
+					gemini: {
+						status: "succeeded",
+						summary: "Gemini prefers a guarded migration with stronger telemetry checkpoints.",
+					},
+				}),
+			);
+
+			const content = await readFile(result.brainstormArtifactPath, "utf-8");
+			assert.match(content, /Advisor consensus:/);
+			assert.match(content, /Primary differences in emphasis:/);
+			assert.match(
+				content,
+				/Prefer the shared direction supported by both advisors/i,
+			);
 		} finally {
 			await rm(repo, { recursive: true, force: true });
 		}

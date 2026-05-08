@@ -42,6 +42,7 @@ export interface BrainstormAdvisorRun {
   exitCode: number | null;
   summary: string | null;
   error: string | null;
+  actionItems: string[];
 }
 
 export type BrainstormAdvisorRuns = Record<BrainstormAdvisorProvider, BrainstormAdvisorRun>;
@@ -109,6 +110,12 @@ export interface BrainstormArtifactRecord {
   timestamp?: string;
   content: string;
   title: string | null;
+  originalIdeaSection: string;
+  currentUnderstandingSection: string;
+  goalsSection: string;
+  constraintsSection: string;
+  openQuestionsSection: string;
+  candidateSolutionsSection: string;
   recommendationSection: string;
   ralplanHandoffSection: string;
   handoffDecisionSection: string;
@@ -124,6 +131,9 @@ export interface BrainstormArtifactRecord {
   contextSnapshotPath: string | null;
   lang: string | null;
   artifactWrittenAt: string | null;
+  rawDesiredOutcome: string | null;
+  rawConstraints: string | null;
+  rawOpenQuestions: string | null;
   advisorRuns: BrainstormAdvisorRuns | null;
   missingAnchors: string[];
 }
@@ -178,6 +188,9 @@ function parseArtifactContract(content: string): {
   contextSnapshotPath: string | null;
   lang: string | null;
   artifactWrittenAt: string | null;
+  rawDesiredOutcome: string | null;
+  rawConstraints: string | null;
+  rawOpenQuestions: string | null;
   advisorRuns: BrainstormAdvisorRuns | null;
 } {
   const lines = normalizeMarkdown(content).split('\n');
@@ -193,6 +206,9 @@ function parseArtifactContract(content: string): {
       contextSnapshotPath: null,
       lang: null,
       artifactWrittenAt: null,
+      rawDesiredOutcome: null,
+      rawConstraints: null,
+      rawOpenQuestions: null,
       advisorRuns: null,
     };
   }
@@ -227,6 +243,9 @@ function parseArtifactContract(content: string): {
     contextSnapshotPath: values.context_snapshot_path ?? null,
     lang: values.lang ?? null,
     artifactWrittenAt: values.artifact_written_at ?? null,
+    rawDesiredOutcome: parseArtifactContractString(values.raw_desired_outcome),
+    rawConstraints: parseArtifactContractString(values.raw_constraints),
+    rawOpenQuestions: parseArtifactContractString(values.raw_open_questions),
     advisorRuns,
   };
 }
@@ -241,6 +260,19 @@ function parseArtifactContractNumber(value: string | undefined): number | null {
   if (!normalized || normalized === 'none') return null;
   const parsed = Number.parseInt(normalized, 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseArtifactContractStringArray(value: string | undefined): string[] {
+  const normalized = value?.trim();
+  if (!normalized || normalized.toLowerCase() === 'none') return [];
+  try {
+    const parsed = JSON.parse(normalized);
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === 'string')
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function parseArtifactContractBoolean(value: string | undefined): boolean | null {
@@ -268,6 +300,7 @@ function parseBrainstormAdvisorRuns(values: Record<string, string>): BrainstormA
         exitCode: parseArtifactContractNumber(values[`advisor_${provider}_exit_code`]),
         summary: parseArtifactContractString(values[`advisor_${provider}_summary`]),
         error: parseArtifactContractString(values[`advisor_${provider}_error`]),
+        actionItems: parseArtifactContractStringArray(values[`advisor_${provider}_action_items`]),
       },
     ] as const;
   });
@@ -328,6 +361,12 @@ export function readBrainstormArtifact(reportPath: string, cwd = process.cwd()):
     const content = readFileSync(resolvedPath, 'utf-8');
     const normalized = normalizeMarkdown(content);
     const title = normalized.match(/^#\s+Brainstorm Report:.*$/im)?.[0] ?? null;
+    const originalIdeaSection = extractMarkdownSection(normalized, /^##\s+1\.\s+Original Idea\s*$/i);
+    const currentUnderstandingSection = extractMarkdownSection(normalized, /^##\s+2\.\s+Current Understanding\s*$/i);
+    const goalsSection = extractMarkdownSection(normalized, /^##\s+4\.\s+Goals\s*$/i);
+    const constraintsSection = extractMarkdownSection(normalized, /^##\s+6\.\s+Constraints\s*$/i);
+    const openQuestionsSection = extractMarkdownSection(normalized, /^##\s+7\.\s+Open Questions\s*$/i);
+    const candidateSolutionsSection = extractMarkdownSection(normalized, /^##\s+8\.\s+Candidate Solutions\s*$/i);
     const recommendationSection = extractMarkdownSection(normalized, /^##\s+9\.\s+Recommendation\s*$/i);
     const ralplanHandoffSection = extractMarkdownSection(normalized, /^##\s+15\.\s+Ralplan Handoff\s*$/i);
     const handoffDecisionSection = extractMarkdownSection(normalized, /^##\s+16\.\s+Handoff Decision\s*$/i);
@@ -338,6 +377,12 @@ export function readBrainstormArtifact(reportPath: string, cwd = process.cwd()):
       timestamp: parsed.timestamp,
       content,
       title,
+      originalIdeaSection,
+      currentUnderstandingSection,
+      goalsSection,
+      constraintsSection,
+      openQuestionsSection,
+      candidateSolutionsSection,
       recommendationSection,
       ralplanHandoffSection,
       handoffDecisionSection,
@@ -353,6 +398,9 @@ export function readBrainstormArtifact(reportPath: string, cwd = process.cwd()):
       contextSnapshotPath: contract.contextSnapshotPath,
       lang: contract.lang,
       artifactWrittenAt: contract.artifactWrittenAt,
+      rawDesiredOutcome: contract.rawDesiredOutcome,
+      rawConstraints: contract.rawConstraints,
+      rawOpenQuestions: contract.rawOpenQuestions,
       advisorRuns: contract.advisorRuns,
     };
 
@@ -363,6 +411,21 @@ export function readBrainstormArtifact(reportPath: string, cwd = process.cwd()):
   } catch {
     return null;
   }
+}
+
+export function readBrainstormArtifacts(cwd: string): BrainstormArtifactRecord[] {
+  return readPlanningArtifacts(cwd).brainstormPaths
+    .map((path) => readBrainstormArtifact(path, cwd))
+    .filter((record): record is BrainstormArtifactRecord => Boolean(record));
+}
+
+export function readBrainstormArtifactHistoryForSlug(cwd: string, slug: string): BrainstormArtifactRecord[] {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (!normalizedSlug) return [];
+  return readPlanningArtifacts(cwd).brainstormPaths
+    .filter((path) => planningArtifactSlug(path, 'brainstorm')?.toLowerCase() === normalizedSlug)
+    .map((path) => readBrainstormArtifact(path, cwd))
+    .filter((record): record is BrainstormArtifactRecord => Boolean(record));
 }
 
 export function readLatestBrainstormArtifact(cwd: string): BrainstormArtifactRecord | null {

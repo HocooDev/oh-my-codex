@@ -18,7 +18,7 @@
 
 **Website:** https://yeachan-heo.github.io/oh-my-codex-website/
 
-**Docs:** [Getting Started](./docs/getting-started.html) · [Agents](./docs/agents.html) · [Skills](./docs/skills.html) · [Integrations](./docs/integrations.html) · [Demo](./DEMO.md) · [OpenClaw guide](./docs/openclaw-integration.md)
+**Docs:** [Getting Started](./docs/getting-started.html) · [Brainstorm CLI](./docs/brainstorm.md) · [Agents](./docs/agents.html) · [Skills](./docs/skills.html) · [Integrations](./docs/integrations.html) · [Demo](./DEMO.md) · [OpenClaw guide](./docs/openclaw-integration.md)
 
 **Community:** [Discord](https://discord.gg/PUwSMR9XNk) — shared OMX/community server for oh-my-codex and related tooling.
 
@@ -200,8 +200,9 @@ Most users should think of OMX as **better task routing + better workflow + bett
 ## Recommended workflow
 
 1. `$brainstorm` — explore design options and produce a reviewable design report when the idea is still vague.
-   - If you want the artifact-first CLI bridge, use `omx brainstorm` / `omx brainstorm init` to create or update the canonical brainstorm markdown artifact, then record `continue exploring`, `deep-interview`, `ralplan`, or `stop` without auto-launching the next workflow.
+   - If you want the artifact-first CLI bridge, use `omx brainstorm init`, `omx brainstorm resume --slug <slug>`, `omx brainstorm list`, `omx brainstorm history --slug <slug>`, and `omx brainstorm status` to create, continue, browse, and inspect the canonical brainstorm markdown artifacts without auto-launching the next workflow.
    - Add `--with-claude` and/or `--with-gemini` to run the corresponding local advisor CLI, save `.omx/artifacts/ask-<provider>-...` evidence, and fold the result into the brainstorm artifact; provider failures degrade into recorded warnings instead of aborting the brainstorm draft.
+   - See [docs/brainstorm.md](./docs/brainstorm.md) for the full CLI/runtime guide.
 2. `$deep-interview` — clarify scope when the request or boundaries are still vague.
 3. `$ralplan` — turn the approved direction into an approved architecture and implementation plan.
 4. `$team` or `$ralph` — use `$team` for coordinated parallel execution, or `$ralph` when you want a persistent completion loop with one owner.
@@ -332,6 +333,7 @@ If this happens, try:
 ## Documentation
 
 - [Getting Started](./docs/getting-started.html)
+- [Brainstorm CLI guide](./docs/brainstorm.md)
 - [Demo guide](./DEMO.md)
 - [Wiki feature](./docs/wiki-feature.md)
 - [Agent catalog](./docs/agents.html)

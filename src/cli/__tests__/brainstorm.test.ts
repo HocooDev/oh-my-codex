@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
@@ -9,6 +9,9 @@ import { fileURLToPath } from "node:url";
 import {
 	BRAINSTORM_HELP,
 	parseBrainstormArgs,
+	parseBrainstormHistoryArgs,
+	parseBrainstormListArgs,
+	parseBrainstormResumeArgs,
 	parseBrainstormStatusArgs,
 } from "../brainstorm.js";
 import { writeBrainstormArtifact } from "../brainstorm-intake.js";
@@ -99,12 +102,59 @@ describe("brainstorm CLI parsing", () => {
 		);
 	});
 
+	it("parses resume, list, and history flags", () => {
+		assert.deepEqual(parseBrainstormArgs(["resume", "--slug", "search-ux"]), {
+			resume: true,
+			resumeArgs: ["--slug", "search-ux"],
+		});
+		assert.deepEqual(parseBrainstormResumeArgs(["--slug", "search-ux"]), {
+			slug: "search-ux",
+			lang: undefined,
+			withClaude: false,
+			withGemini: false,
+		});
+		assert.deepEqual(
+			parseBrainstormResumeArgs([
+				"--slug",
+				"search-ux",
+				"--lang",
+				"zh-CN",
+				"--with-claude",
+			]),
+			{
+				slug: "search-ux",
+				lang: "zh-CN",
+				withClaude: true,
+				withGemini: false,
+			},
+		);
+		assert.deepEqual(parseBrainstormListArgs(["--json"]), { json: true });
+		assert.deepEqual(
+			parseBrainstormHistoryArgs(["--slug", "search-ux", "--json"]),
+			{
+				slug: "search-ux",
+				json: true,
+			},
+		);
+		assert.throws(
+			() => parseBrainstormResumeArgs(["--latest"]),
+			/not supported/i,
+		);
+		assert.throws(
+			() => parseBrainstormHistoryArgs(["--json"]),
+			/Missing required --slug/i,
+		);
+	});
+
 	it("keeps dedicated local help text", () => {
 		assert.match(
 			BRAINSTORM_HELP,
 			/omx brainstorm - Guided brainstorm artifact runtime/i,
 		);
 		assert.match(BRAINSTORM_HELP, /does not auto-launch/i);
+		assert.match(BRAINSTORM_HELP, /omx brainstorm resume --slug/i);
+		assert.match(BRAINSTORM_HELP, /omx brainstorm list \[--json\]/i);
+		assert.match(BRAINSTORM_HELP, /omx brainstorm history --slug/i);
 	});
 });
 
@@ -150,6 +200,78 @@ describe("brainstorm CLI surface", () => {
 			assert.match(
 				result.stdout,
 				/omx brainstorm - Guided brainstorm artifact runtime/i,
+			);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("lists and filters brainstorm artifact history with stable json output", async () => {
+		const cwd = await initRepo();
+		try {
+			await writeBrainstormArtifact({
+				repoRoot: cwd,
+				idea: "Review search UX",
+				slug: "search-ux",
+				lang: "en",
+				approvalState: "approved_for_deep_interview",
+				now: new Date("2026-05-08T01:02:03.000Z"),
+			});
+			await writeBrainstormArtifact({
+				repoRoot: cwd,
+				idea: "Review auth UX",
+				slug: "auth-ux",
+				lang: "en",
+				approvalState: "approved_for_deep_interview",
+				now: new Date("2026-05-08T01:02:04.000Z"),
+			});
+			const latestSearch = await writeBrainstormArtifact({
+				repoRoot: cwd,
+				idea: "Review search UX",
+				slug: "search-ux",
+				lang: "en",
+				approvalState: "approved_for_ralplan",
+				advisorFlags: { withClaude: true, withGemini: false },
+				now: new Date("2026-05-08T01:02:05.000Z"),
+			});
+
+			const list = runOmx(cwd, ["brainstorm", "list", "--json"]);
+			assert.equal(list.status, 0, list.stderr || list.stdout);
+			const parsedList = JSON.parse(list.stdout) as {
+				items: Array<{ slug: string; timestamp: string; artifactPath: string }>;
+			};
+			assert.equal(parsedList.items.length, 3);
+			assert.equal(parsedList.items[0]?.slug, "search-ux");
+			assert.equal(parsedList.items[0]?.timestamp, "20260508T010205Z");
+
+			const history = runOmx(cwd, [
+				"brainstorm",
+				"history",
+				"--slug",
+				"search-ux",
+				"--json",
+			]);
+			assert.equal(history.status, 0, history.stderr || history.stdout);
+			const parsedHistory = JSON.parse(history.stdout) as {
+				slug: string;
+				items: Array<{
+					slug: string;
+					artifactPath: string;
+					contextSnapshotPath: string | null;
+					advisorFlags: { withClaude: boolean; withGemini: boolean };
+				}>;
+			};
+			assert.equal(parsedHistory.slug, "search-ux");
+			assert.equal(parsedHistory.items.length, 2);
+			assert.equal(parsedHistory.items[0]?.slug, "search-ux");
+			assert.equal(
+				parsedHistory.items[0]?.artifactPath,
+				latestSearch.path.replace(`${cwd}\\`, "").replace(/\\/g, "/"),
+			);
+			assert.equal(parsedHistory.items[0]?.advisorFlags.withClaude, true);
+			assert.match(
+				String(parsedHistory.items[0]?.contextSnapshotPath),
+				/^\.omx\/context\//i,
 			);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
@@ -232,6 +354,70 @@ describe("brainstorm CLI surface", () => {
 				existsSync(join(cwd, ".omx", "state", "ralplan-state.json")),
 				false,
 			);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("resumes an approved brainstorm artifact into a fresh draft version", async () => {
+		const cwd = await initRepo();
+		try {
+			const original = await writeBrainstormArtifact({
+				repoRoot: cwd,
+				idea: "Review search UX",
+				slug: "search-ux",
+				lang: "en",
+				advisorFlags: { withClaude: true, withGemini: false },
+				advisorRuns: {
+					claude: {
+						enabled: true,
+						status: "succeeded",
+						artifactPath: ".omx/artifacts/ask-claude-test.md",
+						exitCode: 0,
+						summary: "Claude recommends a staged rollout with explicit observability gates.",
+						error: null,
+						actionItems: ["Verify observability before rollout."],
+					},
+					gemini: {
+						enabled: false,
+						status: "skipped",
+						artifactPath: null,
+						exitCode: null,
+						summary: "Advisor not requested.",
+						error: null,
+						actionItems: [],
+					},
+				},
+				approvalState: "approved_for_ralplan",
+				now: new Date("2026-05-08T01:02:03.000Z"),
+			});
+
+			const resumed = runOmx(cwd, [
+				"brainstorm",
+				"resume",
+				"--slug",
+				"search-ux",
+			]);
+			assert.equal(resumed.status, 0, resumed.stderr || resumed.stdout);
+			assert.match(resumed.stdout, /approved brainstorm artifact/i);
+			assert.match(resumed.stdout, /Resumed from:/i);
+
+			const specsDir = join(cwd, ".omx", "specs");
+			const entries = await readdir(specsDir);
+			assert.equal(entries.filter((name) => /^brainstorm-.*search-ux\.md$/i.test(name)).length, 2);
+
+			const latest = runOmx(cwd, [
+				"brainstorm",
+				"status",
+				"--slug",
+				"search-ux",
+				"--json",
+			]);
+			assert.equal(latest.status, 0, latest.stderr || latest.stdout);
+			const parsedLatest = JSON.parse(latest.stdout);
+			assert.equal(parsedLatest.artifact.approvalState, "draft");
+			assert.notEqual(parsedLatest.artifact.path, original.path);
+			assert.equal(parsedLatest.artifact.advisorRuns.claude.enabled, false);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
