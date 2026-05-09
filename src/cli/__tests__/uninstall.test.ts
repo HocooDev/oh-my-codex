@@ -49,7 +49,7 @@ function buildOmxConfig(): string {
     '[features]',
     'multi_agent = true',
     'child_agents_md = true',
-    'codex_hooks = true',
+    'hooks = true',
     'goals = true',
     '',
     '# ============================================================',
@@ -123,7 +123,7 @@ function buildConfigWithSeededModelContext(): string {
     '[features]',
     'multi_agent = true',
     'child_agents_md = true',
-    'codex_hooks = true',
+    'hooks = true',
     'goals = true',
     '',
     '# ============================================================',
@@ -157,7 +157,7 @@ function buildConfigWithEditedSeededModelContext(): string {
     '[features]',
     'multi_agent = true',
     'child_agents_md = true',
-    'codex_hooks = true',
+    'hooks = true',
     'goals = true',
     '',
     '# ============================================================',
@@ -189,7 +189,7 @@ function buildMixedConfig(): string {
     '[features]',
     'multi_agent = true',
     'child_agents_md = true',
-    'codex_hooks = true',
+    'hooks = true',
     'goals = true',
     'web_search = true',
     '',
@@ -301,6 +301,7 @@ describe('omx uninstall', () => {
       assert.doesNotMatch(config, /developer_instructions\s*=/);
       assert.doesNotMatch(config, /multi_agent\s*=/);
       assert.doesNotMatch(config, /child_agents_md\s*=/);
+      assert.doesNotMatch(config, /hooks\s*=/);
       assert.doesNotMatch(config, /codex_hooks\s*=/);
       assert.equal(existsSync(join(codexDir, 'hooks.json')), false);
     } finally {
@@ -332,6 +333,45 @@ describe('omx uninstall', () => {
       assert.doesNotMatch(config, /notify\s*=.*node/);
       assert.doesNotMatch(config, /multi_agent/);
       assert.doesNotMatch(config, /child_agents_md/);
+      assert.doesNotMatch(config, /hooks/);
+      assert.doesNotMatch(config, /codex_hooks/);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('removes legacy codex_hooks config while preserving user feature flags', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-uninstall-'));
+    try {
+      const home = join(wd, 'home');
+      const codexDir = join(home, '.codex');
+      await mkdir(codexDir, { recursive: true });
+      await writeFile(
+        join(codexDir, 'config.toml'),
+        [
+          '# User settings',
+          'model = "o4-mini"',
+          '',
+          '[features]',
+          'multi_agent = true',
+          'child_agents_md = true',
+          'codex_hooks = true',
+          'goals = true',
+          'web_search = true',
+          '',
+        ].join('\n'),
+      );
+
+      const res = runOmx(wd, ['uninstall'], { HOME: home });
+      if (shouldSkipForSpawnPermissions(res.error)) return;
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+
+      const config = await readFile(join(codexDir, 'config.toml'), 'utf-8');
+      assert.match(config, /model = "o4-mini"/);
+      assert.match(config, /web_search = true/);
+      assert.doesNotMatch(config, /multi_agent/);
+      assert.doesNotMatch(config, /child_agents_md/);
+      assert.doesNotMatch(config, /hooks/);
       assert.doesNotMatch(config, /codex_hooks/);
     } finally {
       await rm(wd, { recursive: true, force: true });

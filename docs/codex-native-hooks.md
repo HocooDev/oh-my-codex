@@ -8,8 +8,12 @@ This page is the canonical answer to:
 
 `omx setup` now owns both of these native Codex artifacts:
 
-- `.codex/config.toml` → enables setup-owned runtime feature flags including `[features].codex_hooks = true` and `[features].goals = true`
+- `.codex/config.toml` → enables setup-owned runtime feature flags including `[features].hooks = true` and `[features].goals = true`
 - `.codex/hooks.json` → registers the OMX-managed native hook command while preserving non-OMX hook entries already in the file
+
+When rerun against older Codex configs, `omx setup` migrates the deprecated
+`[features].codex_hooks` alias to the canonical stable `hooks` flag so the
+generated config stays warning-free on newer Codex CLI releases.
 
 For project scope, `.gitignore` keeps generated `.codex/hooks.json` out of source control.
 `omx uninstall` removes only the OMX-managed wrapper entries from `.codex/hooks.json`; if user hooks remain, the file stays in place.
