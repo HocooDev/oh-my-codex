@@ -21,8 +21,31 @@ Authoritative workflow state lives in per-mode files under `.omx/state/`:
 Examples:
 
 - `.omx/state/ralplan-state.json`
+- `.omx/state/brainstorm-state.json`
 - `.omx/state/sessions/<session_id>/ralph-state.json`
 - `.omx/state/team-state.json`
+
+For the guided brainstorm CLI runtime, `brainstorm-state.json` may also persist artifact-first handoff metadata such as:
+
+- `slug`
+- `context_snapshot_path`
+- `brainstorm_artifact_path`
+- `artifact_written_at`
+- `lang`
+- `advisor_flags`
+- `advisor_runs`
+- `recommended_next_skill`
+- `selected_next_skill`
+- `approval_state` (`draft`, `continue_exploring`, `approved_for_deep_interview`, `approved_for_ralplan`, `stopped`)
+
+When external advisors are enabled, `advisor_runs` records one stable entry per provider (`claude`, `gemini`) with:
+
+- `enabled`
+- `status` (`skipped`, `succeeded`, `failed`)
+- `artifactPath`
+- `exitCode`
+- `summary`
+- `error`
 
 These files determine whether a workflow mode is active, completed, cancelled, or failed. Those mode phases are not always identical to the user-facing terminal lifecycle vocabulary; see the explicit terminal lifecycle section below for that compatibility boundary.
 
@@ -142,6 +165,8 @@ The source mode is terminalized and the destination becomes active.
 
 Current allowlisted forward handoffs:
 
+- `brainstorm -> deep-interview`
+- `brainstorm -> ralplan`
 - `deep-interview -> ralplan`
 - `ralplan -> team`
 - `ralplan -> ralph`
@@ -156,6 +181,8 @@ The requested transition is not allowed and no state is changed.
 
 | From | To | Result |
 |---|---|---|
+| `brainstorm` | `deep-interview` | auto-complete `brainstorm`, start `deep-interview` |
+| `brainstorm` | `ralplan` | auto-complete `brainstorm`, start `ralplan` |
 | `deep-interview` | `ralplan` | auto-complete `deep-interview`, start `ralplan` |
 | `ralplan` | `team` | auto-complete `ralplan`, start `team` |
 | `ralplan` | `ralph` | auto-complete `ralplan`, start `ralph` |
@@ -173,14 +200,15 @@ The requested transition is not allowed and no state is changed.
 ### Planning-like
 
 - `deep-interview`
+- `brainstorm`
 - `ralplan`
-- `autoresearch`
 
 ### Execution-like
 
 - `team`
 - `ralph`
 - `autopilot`
+- `autoresearch`
 - `ultrawork`
 - `ultraqa`
 

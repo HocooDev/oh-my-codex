@@ -246,6 +246,43 @@ describe('state operations directory initialization', () => {
     }
   });
 
+  it('writes and reads brainstorm state', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-state-ops-brainstorm-'));
+    try {
+      const writeResponse = await executeStateOperation('state_write', {
+        workingDirectory: wd,
+        mode: 'brainstorm',
+        active: true,
+        current_phase: 'planning',
+        state: {
+          report_status: 'draft',
+          recommended_next_skill: 'ralplan',
+        },
+      });
+
+      assert.equal(writeResponse.isError, undefined);
+      assert.deepEqual(writeResponse.payload, {
+        success: true,
+        mode: 'brainstorm',
+        path: join(wd, '.omx', 'state', 'brainstorm-state.json'),
+      });
+
+      const readResponse = await executeStateOperation('state_read', {
+        workingDirectory: wd,
+        mode: 'brainstorm',
+      });
+
+      assert.equal(readResponse.isError, undefined);
+      const readBody = readResponse.payload as Record<string, unknown>;
+      assert.equal(readBody.active, true);
+      assert.equal(readBody.current_phase, 'planning');
+      assert.equal(readBody.report_status, 'draft');
+      assert.equal(readBody.recommended_next_skill, 'ralplan');
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
   it('writes and reads autoresearch state', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-state-ops-autoresearch-'));
     try {

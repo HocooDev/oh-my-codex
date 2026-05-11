@@ -60,6 +60,20 @@ describe('workflow transition rules', () => {
     assert.deepEqual(interviewToAutoresearch.resultingModes, ['autoresearch']);
     assert.equal(interviewToAutoresearch.transitionMessage, 'mode transiting: deep-interview -> autoresearch');
 
+    const brainstormToInterview = evaluateWorkflowTransition(['brainstorm'], 'deep-interview');
+    assert.equal(brainstormToInterview.allowed, true);
+    assert.equal(brainstormToInterview.kind, 'auto-complete');
+    assert.deepEqual(brainstormToInterview.autoCompleteModes, ['brainstorm']);
+    assert.deepEqual(brainstormToInterview.resultingModes, ['deep-interview']);
+    assert.equal(brainstormToInterview.transitionMessage, 'mode transiting: brainstorm -> deep-interview');
+
+    const brainstormToRalplan = evaluateWorkflowTransition(['brainstorm'], 'ralplan');
+    assert.equal(brainstormToRalplan.allowed, true);
+    assert.equal(brainstormToRalplan.kind, 'auto-complete');
+    assert.deepEqual(brainstormToRalplan.autoCompleteModes, ['brainstorm']);
+    assert.deepEqual(brainstormToRalplan.resultingModes, ['ralplan']);
+    assert.equal(brainstormToRalplan.transitionMessage, 'mode transiting: brainstorm -> ralplan');
+
     const ralplanToRalph = evaluateWorkflowTransition(['ralplan', 'ultrawork'], 'ralph');
     assert.equal(ralplanToRalph.allowed, true);
     assert.equal(ralplanToRalph.kind, 'auto-complete');

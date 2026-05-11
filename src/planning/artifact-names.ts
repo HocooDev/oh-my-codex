@@ -2,7 +2,12 @@ import { basename } from 'node:path';
 
 const PLANNING_ARTIFACT_TIMESTAMP_PATTERN = /^\d{8}T\d{6}Z$/;
 
-export type PlanningArtifactKind = 'prd' | 'test-spec' | 'deep-interview' | 'deep-interview-autoresearch';
+export type PlanningArtifactKind =
+  | 'prd'
+  | 'test-spec'
+  | 'deep-interview'
+  | 'deep-interview-autoresearch'
+  | 'brainstorm';
 
 export interface PlanningArtifactNameInfo {
   kind: PlanningArtifactKind;
@@ -58,6 +63,16 @@ export function parsePlanningArtifactFileName(fileNameOrPath: string): PlanningA
     if (!parsedSlug.slug) return null;
     return {
       kind: 'deep-interview',
+      ...parsedSlug,
+    };
+  }
+
+  const brainstormMatch = fileName.match(/^brainstorm-(?<slug>.+)\.md$/i);
+  if (brainstormMatch?.groups?.slug) {
+    const parsedSlug = splitTimestampPrefix(brainstormMatch.groups.slug);
+    if (!parsedSlug.slug) return null;
+    return {
+      kind: 'brainstorm',
       ...parsedSlug,
     };
   }

@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Guided `omx brainstorm` runtime** — `omx brainstorm`, `omx brainstorm init`, and `omx brainstorm status` now create/reuse canonical brainstorm context + markdown artifacts, record approval handoff metadata for `deep-interview` / `ralplan` / continue / stop, and intentionally avoid auto-launching downstream workflows.
+- **Executable brainstorm advisor lanes** — `omx brainstorm --with-claude` / `--with-gemini` now run the corresponding local advisor CLI, save `.omx/artifacts/ask-<provider>-...` evidence, surface advisor metadata in brainstorm status/artifacts/state, and degrade to recorded warnings instead of aborting the draft when a provider fails.
+
 ## [0.16.0] - 2026-05-06
 
 Minor release focused on skill deprecation and native Codex goal-mode integration. This release prepares durable goal workflows, Codex goal snapshot reconciliation, Team/Ralph goal handoff safety, and catalog/plugin skill delivery cleanup after `0.15.3`.

@@ -11,17 +11,21 @@ Ralplan is a shorthand alias for `$plan --consensus`. It triggers iterative plan
 
 ```
 $ralplan "task description"
+$ralplan --from-design .omx/specs/brainstorm-<timestamp>-<slug>.md "task description"
 ```
 
 ## Flags
 
 - `--interactive`: Enables user prompts at key decision points (draft review in step 2 and final approval in step 6). Without this flag the workflow runs fully automated — Planner → Architect/Critic parallel review loop — and outputs the final plan without asking for confirmation.
 - `--deliberate`: Forces deliberate mode for high-risk work. Adds pre-mortem (3 scenarios) and expanded test planning (unit/integration/e2e/observability). Without this flag, deliberate mode can still auto-enable when the request explicitly signals high risk (auth/security, migrations, destructive changes, production incidents, compliance/PII, public API breakage).
+- `--from-design <path|latest>`: Use a brainstorm design report as planning input. The report must be a canonical `.omx/specs/brainstorm-<timestamp>-<slug>.md` artifact with the required handoff anchors and `recommended_next_skill: ralplan`. The report is input only — ralplan must still validate open questions, acceptance criteria, and test strategy before approving a PRD/test spec.
+- `--from-design <path|latest>` is reserved workflow syntax; do not use it as plain prose inside the task text unless you intend to activate design-input intake.
 
 ## Usage with interactive mode
 
 ```
 $ralplan --interactive "task description"
+$ralplan --from-design .omx/specs/brainstorm-<timestamp>-<slug>.md --interactive "task description"
 ```
 
 ## Behavior
@@ -61,6 +65,16 @@ The consensus workflow:
 > **Important:** Steps 3 and 4 MUST review the same Planner draft in parallel. Launch both review calls in the same batch, then wait for both results before the next Planner revision.
 
 Follow the Plan skill's full documentation for consensus mode details.
+
+## Brainstorm design handoff gate
+
+When `--from-design` is present:
+
+- Read the brainstorm report from disk instead of treating the path as inert text.
+- Require the stable brainstorm anchors: `# Brainstorm Report:`, `## 9. Recommendation`, `## 15. Ralplan Handoff`, `## 16. Handoff Decision`, plus the `artifact:` block.
+- Extract `Approved recommendation`, `Suggested next command`, `Handoff Decision`, and `recommended_next_skill`.
+- Reject the handoff with an explicit error if anchors are missing, if `artifact.status` is not `approved`, if `recommended_next_skill: none`, or if the report still says `deep-interview`.
+- Treat the brainstorm report as design input only; do **not** skip open questions, acceptance criteria, or test strategy validation.
 
 ## Pre-context Intake
 

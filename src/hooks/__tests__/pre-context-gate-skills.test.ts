@@ -22,12 +22,24 @@ const ralphSkill = readFileSync(
   join(__dirname, '../../../skills/ralph/SKILL.md'),
   'utf-8',
 );
+const brainstormSkill = readFileSync(
+  join(__dirname, '../../../skills/brainstorm/SKILL.md'),
+  'utf-8',
+);
 
 describe('pre-context gate guidance in planning/execution-heavy skills', () => {
+  it('brainstorm documents required context snapshot intake and artifact output', () => {
+    assert.match(brainstormSkill, /Pre-context Intake/i);
+    assert.match(brainstormSkill, /\.omx\/context\/\{slug\}-\{timestamp\}\.md/);
+    assert.match(brainstormSkill, /\.omx\/specs\/brainstorm-<timestamp>-<slug>\.md/i);
+  });
+
   it('ralplan documents required context snapshot intake', () => {
     assert.match(ralplanSkill, /Pre-context Intake/i);
     assert.match(ralplanSkill, /\.omx\/context\/\{slug\}-\{timestamp\}\.md/);
     assert.match(ralplanSkill, /\$deep-interview\s+--quick/i);
+    assert.match(ralplanSkill, /--from-design/i);
+    assert.match(ralplanSkill, /recommended_next_skill: ralplan/i);
   });
 
   it('team documents required context snapshot gate before launch', () => {

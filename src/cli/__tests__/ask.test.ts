@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -46,6 +46,16 @@ function normalizeDarwinTmpPath(value: string): string {
 
 function shouldSkipForSpawnPermissions(err?: string): boolean {
   return typeof err === 'string' && /(EPERM|EACCES)/i.test(err);
+}
+
+async function createProviderScript(
+  root: string,
+  provider: 'claude' | 'gemini',
+  body: string[],
+): Promise<string> {
+  const scriptPath = join(root, `${provider}-provider-script.js`);
+  await writeFile(scriptPath, body.join('\n'), 'utf8');
+  return scriptPath;
 }
 
 describe('parseAskArgs', () => {
@@ -160,22 +170,22 @@ describe('omx ask', () => {
   it('uses package-root advisor script path from non-package cwd and still writes artifact', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-ask-nonroot-'));
     try {
-      const fakeBin = join(wd, 'bin');
-      await mkdir(fakeBin, { recursive: true });
-      await writeFile(
-        join(fakeBin, 'claude'),
-        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "fake-claude"; exit 0; fi\nif [ "$1" = "-p" ]; then echo "NONROOT_DEFAULT_OK"; exit 0; fi\necho "unexpected" 1>&2\nexit 3\n',
-      );
-      await chmod(join(fakeBin, 'claude'), 0o755);
+      const scriptPath = await createProviderScript(wd, 'claude', [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'if (args[0] === "-p") { console.log("NONROOT_DEFAULT_OK"); process.exit(0); }',
+        'console.error("unexpected", JSON.stringify(args));',
+        'process.exit(3);',
+      ]);
 
       const res = runOmx(wd, ['ask', 'claude', 'non-root-default'], {
-        PATH: `${fakeBin}:${process.env.PATH || ''}`,
+        OMX_ASK_PROVIDER_CLAUDE_SCRIPT: scriptPath,
       });
       if (shouldSkipForSpawnPermissions(res.error)) return;
 
       assert.equal(res.status, 0, res.stderr || res.stdout);
       const artifactPath = res.stdout.trim();
-      assert.ok(normalizeDarwinTmpPath(artifactPath).startsWith(normalizeDarwinTmpPath(join(wd, '.omx', 'artifacts', 'claude-'))));
+      assert.ok(normalizeDarwinTmpPath(artifactPath).startsWith(normalizeDarwinTmpPath(join(wd, '.omx', 'artifacts', 'ask-claude-'))));
       assert.equal(existsSync(artifactPath), true);
       const artifact = await readFile(artifactPath, 'utf-8');
       assert.match(artifact, /NONROOT_DEFAULT_OK/);
@@ -187,23 +197,25 @@ describe('omx ask', () => {
   it('supports claude --print and gemini --prompt end-to-end through omx ask', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-ask-provider-flags-'));
     try {
-      const fakeBin = join(wd, 'bin');
-      await mkdir(fakeBin, { recursive: true });
-
-      await writeFile(
-        join(fakeBin, 'claude'),
-        '#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"fake-claude\"; exit 0; fi\nif [ \"$1\" = \"-p\" ]; then echo \"CLAUDE_PRINT_OK:$2\"; exit 0; fi\necho \"unexpected\" 1>&2\nexit 3\n',
-      );
-      await chmod(join(fakeBin, 'claude'), 0o755);
-
-      await writeFile(
-        join(fakeBin, 'gemini'),
-        '#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"fake-gemini\"; exit 0; fi\nif [ \"$1\" = \"-p\" ]; then echo \"GEMINI_PROMPT_OK:$2\"; exit 0; fi\necho \"unexpected\" 1>&2\nexit 4\n',
-      );
-      await chmod(join(fakeBin, 'gemini'), 0o755);
-
+      const claudeScript = await createProviderScript(wd, 'claude', [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const promptIndex = args.indexOf("-p");',
+        'if (promptIndex >= 0) { console.log(`CLAUDE_PRINT_OK:${args[promptIndex + 1] ?? ""}`); process.exit(0); }',
+        'console.error("unexpected", JSON.stringify(args));',
+        'process.exit(3);',
+      ]);
+      const geminiScript = await createProviderScript(wd, 'gemini', [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const promptIndex = args.indexOf("-p");',
+        'if (promptIndex >= 0) { console.log(`GEMINI_PROMPT_OK:${args[promptIndex + 1] ?? ""}`); process.exit(0); }',
+        'console.error("unexpected", JSON.stringify(args));',
+        'process.exit(4);',
+      ]);
       const env = {
-        PATH: `${fakeBin}:${process.env.PATH || ''}`,
+        OMX_ASK_PROVIDER_CLAUDE_SCRIPT: claudeScript,
+        OMX_ASK_PROVIDER_GEMINI_SCRIPT: geminiScript,
       };
 
       const claudeRes = runOmx(wd, ['ask', 'claude', '--print', 'claude-long-flag'], env);
@@ -226,16 +238,12 @@ describe('omx ask', () => {
   it('adds Claude skip-permissions for issue-work prompts only', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-ask-issue-permissions-'));
     try {
-      const fakeBin = join(wd, 'bin');
-      await mkdir(fakeBin, { recursive: true });
-
-      await writeFile(
-        join(fakeBin, 'claude'),
-        '#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"fake-claude\"; exit 0; fi\necho \"CLAUDE_ARGS:$*\"; exit 0\n',
-      );
-      await chmod(join(fakeBin, 'claude'), 0o755);
-
-      const env = { PATH: `${fakeBin}:${process.env.PATH || ''}` };
+      const claudeScript = await createProviderScript(wd, 'claude', [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'console.log(`CLAUDE_ARGS:${args.join(" ")}`);',
+      ]);
+      const env = { OMX_ASK_PROVIDER_CLAUDE_SCRIPT: claudeScript };
 
       const issueRes = runOmx(wd, ['ask', 'claude', 'Investigate issue #1536 and summarize it'], env);
       if (shouldSkipForSpawnPermissions(issueRes.error)) return;
@@ -258,10 +266,8 @@ describe('omx ask', () => {
   it('injects --agent-prompt content into final prompt while keeping Original task raw', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-ask-agent-prompt-'));
     try {
-      const fakeBin = join(wd, 'bin');
       const codexHome = join(wd, '.codex-home');
       const promptsDir = join(codexHome, 'prompts');
-      await mkdir(fakeBin, { recursive: true });
       await mkdir(promptsDir, { recursive: true });
 
       await writeFile(
@@ -269,16 +275,19 @@ describe('omx ask', () => {
         'You are Executor.\nFollow strict verification rules.',
       );
 
-      await writeFile(
-        join(fakeBin, 'claude'),
-        '#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"fake-claude\"; exit 0; fi\nif [ \"$1\" = \"-p\" ]; then echo \"CLAUDE_FINAL_PROMPT:$2\"; exit 0; fi\necho \"unexpected\" 1>&2\nexit 3\n',
-      );
-      await chmod(join(fakeBin, 'claude'), 0o755);
+      const claudeScript = await createProviderScript(wd, 'claude', [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const promptIndex = args.indexOf("-p");',
+        'if (promptIndex >= 0) { console.log(`CLAUDE_FINAL_PROMPT:${args[promptIndex + 1] ?? ""}`); process.exit(0); }',
+        'console.error("unexpected", JSON.stringify(args));',
+        'process.exit(3);',
+      ]);
 
       const res = runOmx(
         wd,
         ['ask', 'claude', '--agent-prompt', 'executor', 'ship', 'feature'],
-        { PATH: `${fakeBin}:${process.env.PATH || ''}`, CODEX_HOME: codexHome },
+        { OMX_ASK_PROVIDER_CLAUDE_SCRIPT: claudeScript, CODEX_HOME: codexHome },
       );
       if (shouldSkipForSpawnPermissions(res.error)) return;
 
@@ -298,22 +307,22 @@ describe('omx ask', () => {
   it('fails clearly when --agent-prompt role is missing from prompts directory', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-ask-agent-prompt-missing-'));
     try {
-      const fakeBin = join(wd, 'bin');
       const codexHome = join(wd, '.codex-home');
       const promptsDir = join(codexHome, 'prompts');
-      await mkdir(fakeBin, { recursive: true });
       await mkdir(promptsDir, { recursive: true });
-
-      await writeFile(
-        join(fakeBin, 'gemini'),
-        '#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"fake-gemini\"; exit 0; fi\nif [ \"$1\" = \"-p\" ]; then echo \"should-not-run\"; exit 0; fi\necho \"unexpected\" 1>&2\nexit 4\n',
-      );
-      await chmod(join(fakeBin, 'gemini'), 0o755);
+      const geminiScript = await createProviderScript(wd, 'gemini', [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const promptIndex = args.indexOf("-p");',
+        'if (promptIndex >= 0) { console.log("should-not-run"); process.exit(0); }',
+        'console.error("unexpected", JSON.stringify(args));',
+        'process.exit(4);',
+      ]);
 
       const res = runOmx(
         wd,
         ['ask', 'gemini', '--agent-prompt=planner', '--prompt', 'do', 'planning'],
-        { PATH: `${fakeBin}:${process.env.PATH || ''}`, CODEX_HOME: codexHome },
+        { OMX_ASK_PROVIDER_GEMINI_SCRIPT: geminiScript, CODEX_HOME: codexHome },
       );
       if (shouldSkipForSpawnPermissions(res.error)) return;
 

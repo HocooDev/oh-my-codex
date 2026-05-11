@@ -24,6 +24,7 @@
 
       <h2>Canonical Workflow</h2>
       <ol>
+        <li><code>$brainstorm</code> - explore design directions, compare options, and produce a reviewable design report before planning.</li>
         <li><code>$deep-interview</code> - clarify intent, boundaries, and non-goals when the task is still fuzzy.</li>
         <li><code>$ralplan</code> - approve the plan and tradeoffs before execution.</li>
         <li><code>$team</code> or <code>$ralph</code> - choose <code>$team</code> for coordinated parallel execution, or <code>$ralph</code> for a persistent completion loop.</li>
@@ -44,6 +45,7 @@
 
       <h2>Planning & Clarification</h2>
       <ul>
+        <li><code>$brainstorm</code> - pre-planning design exploration and option comparison</li>
         <li><code>$deep-interview</code> - requirements clarification before planning or execution</li>
         <li><code>$ralplan</code> - planner/architect/critic consensus planning</li>
         <li><code>$plan</code> - supporting strategic planning when you are not using the canonical path</li>
@@ -73,7 +75,8 @@
       </ul>
 
       <h2>Usage Examples</h2>
-      <pre><code>$deep-interview "clarify the auth change"
+      <pre><code>$brainstorm "explore the design direction"
+$deep-interview "clarify the auth change"
 $ralplan "approve the auth plan and review tradeoffs"
 $ralph "carry the approved plan to completion"
 $team 3:executor "execute the approved plan in parallel"

@@ -12,6 +12,7 @@ import {
   runRalplanConsensus,
   type RalplanConsensusExecutor,
 } from '../../ralplan/runtime.js';
+import { parseRalplanTaskForDesignInput, resolveRalplanTaskContext } from '../../ralplan/design-intake.js';
 
 export interface CreateRalplanStageOptions {
   executor?: RalplanConsensusExecutor;
@@ -37,17 +38,40 @@ export function createRalplanStage(options: CreateRalplanStageOptions = {}): Pip
       if (hasReviewLoopContext(ctx.artifacts)) {
         return false;
       }
+      if (parseRalplanTaskForDesignInput(ctx.task).fromDesignPath) {
+        return false;
+      }
       return isPlanningComplete(readPlanningArtifacts(ctx.cwd));
     },
 
     async run(ctx: StageContext): Promise<StageResult> {
       const startTime = Date.now();
       try {
+        const resolvedTaskContext = resolveRalplanTaskContext(ctx.cwd, ctx.task);
+        if (resolvedTaskContext.status !== 'ok') {
+          return {
+            status: 'failed',
+            artifacts: {
+              stage: 'ralplan',
+              task: resolvedTaskContext.task,
+              fromDesignPath: resolvedTaskContext.fromDesignPath,
+              errorCode: resolvedTaskContext.errorCode,
+              missingAnchors: resolvedTaskContext.missingAnchors,
+            },
+            duration_ms: Date.now() - startTime,
+            error: resolvedTaskContext.error,
+          };
+        }
+
+        const effectiveTask = resolvedTaskContext.value.task;
+        const designInput = resolvedTaskContext.value.designInput;
+
         if (options.executor) {
           const runtimeResult = await runRalplanConsensus(options.executor, {
-            task: ctx.task,
+            task: effectiveTask,
             cwd: ctx.cwd,
             maxIterations: options.maxIterations,
+            designInput,
           });
 
           const planningArtifacts = readPlanningArtifacts(ctx.cwd);
@@ -56,10 +80,11 @@ export function createRalplanStage(options: CreateRalplanStageOptions = {}): Pip
             artifacts: {
               plansDir: planningArtifacts.plansDir,
               specsDir: planningArtifacts.specsDir,
-              task: ctx.task,
+              task: effectiveTask,
               prdPaths: planningArtifacts.prdPaths,
               testSpecPaths: planningArtifacts.testSpecPaths,
               deepInterviewSpecPaths: planningArtifacts.deepInterviewSpecPaths,
+              brainstormPaths: planningArtifacts.brainstormPaths,
               planningComplete: runtimeResult.planningComplete,
               stage: 'ralplan',
               runtime: true,
@@ -68,6 +93,10 @@ export function createRalplanStage(options: CreateRalplanStageOptions = {}): Pip
               drafts: runtimeResult.drafts,
               architectReviews: runtimeResult.architectReviews,
               criticReviews: runtimeResult.criticReviews,
+              ...(designInput ? {
+                designInputPath: designInput.sourcePath,
+                designInputRecommendedNextSkill: designInput.recommendedNextSkill,
+              } : {}),
               ...runtimeResult.artifacts,
             },
             duration_ms: Date.now() - startTime,
@@ -82,13 +111,24 @@ export function createRalplanStage(options: CreateRalplanStageOptions = {}): Pip
           artifacts: {
             plansDir: planningArtifacts.plansDir,
             specsDir: planningArtifacts.specsDir,
-            task: ctx.task,
+            task: effectiveTask,
             prdPaths: planningArtifacts.prdPaths,
             testSpecPaths: planningArtifacts.testSpecPaths,
             deepInterviewSpecPaths: planningArtifacts.deepInterviewSpecPaths,
+            brainstormPaths: planningArtifacts.brainstormPaths,
             planningComplete: isPlanningComplete(planningArtifacts),
             stage: 'ralplan',
-            instruction: `Run RALPLAN consensus planning for: ${ctx.task}`,
+            instruction: designInput
+              ? [
+                `Run RALPLAN consensus planning for: ${effectiveTask}`,
+                `Design input: ${designInput.sourcePath}`,
+                'Treat the brainstorm report as design input only; do not skip open questions, acceptance criteria, or test strategy validation when drafting the PRD/test spec.',
+              ].join('\n')
+              : `Run RALPLAN consensus planning for: ${effectiveTask}`,
+            ...(designInput ? {
+              designInputPath: designInput.sourcePath,
+              designInputRecommendedNextSkill: designInput.recommendedNextSkill,
+            } : {}),
           },
           duration_ms: Date.now() - startTime,
         };

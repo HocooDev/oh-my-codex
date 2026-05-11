@@ -1090,6 +1090,7 @@ describe("commandOwnsLocalHelp", () => {
       "adapt",
       "agents-init",
       "ask",
+      "brainstorm",
       "question",
       "ready",
       "autoresearch",
@@ -1150,6 +1151,13 @@ describe("resolveCliInvocation", () => {
   it("resolves autoresearch to autoresearch command", () => {
     assert.deepEqual(resolveCliInvocation(["autoresearch", "missions/demo"]), {
       command: "autoresearch",
+      launchArgs: [],
+    });
+  });
+
+  it("resolves brainstorm to brainstorm command", () => {
+    assert.deepEqual(resolveCliInvocation(["brainstorm", "status", "--latest"]), {
+      command: "brainstorm",
       launchArgs: [],
     });
   });

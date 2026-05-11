@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "2026.04.22.1",
+  "catalogVersion": "2026.05.08.1",
   "skills": [
     {
       "name": "autopilot",
@@ -86,6 +86,11 @@
     },
     {
       "name": "deep-interview",
+      "category": "planning",
+      "status": "active"
+    },
+    {
+      "name": "brainstorm",
       "category": "planning",
       "status": "active"
     },

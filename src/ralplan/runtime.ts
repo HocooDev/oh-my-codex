@@ -1,5 +1,6 @@
 import { cancelMode, readModeState, startMode, updateModeState } from '../modes/base.js';
 import { readPlanningArtifacts } from '../planning/artifacts.js';
+import type { RalplanDesignInput } from './design-intake.js';
 
 export const RALPLAN_ACTIVE_PHASES = [
   'draft',
@@ -28,6 +29,7 @@ export interface RalplanConsensusIterationContext {
   task: string;
   cwd: string;
   iteration: number;
+  designInput: RalplanDesignInput | null;
   priorDrafts: RalplanDraftResult[];
   architectReviews: RalplanReviewResult[];
   criticReviews: RalplanReviewResult[];
@@ -50,6 +52,7 @@ export interface RunRalplanConsensusOptions {
   task: string;
   cwd?: string;
   maxIterations?: number;
+  designInput?: RalplanDesignInput | null;
 }
 
 export interface RalplanRuntimeResult {
@@ -134,6 +137,7 @@ export async function runRalplanConsensus(
         task: options.task,
         cwd,
         iteration,
+        designInput: options.designInput ?? null,
         priorDrafts: [...drafts],
         architectReviews: [...architectReviews],
         criticReviews: [...criticReviews],
@@ -148,6 +152,13 @@ export async function runRalplanConsensus(
       const draft = await executor.draft(iterationContext);
       drafts.push(draft);
       if (draft.artifacts) Object.assign(aggregatedArtifacts, draft.artifacts);
+      if (options.designInput) {
+        Object.assign(aggregatedArtifacts, {
+          designInputPath: options.designInput.sourcePath,
+          designInputRecommendedNextSkill: options.designInput.recommendedNextSkill,
+          designInputSuggestedNextCommand: options.designInput.suggestedNextCommand,
+        });
+      }
       if (draft.planPath) latestPlanPath = draft.planPath;
 
       await updateRalplanState(cwd, {

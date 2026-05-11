@@ -26,6 +26,7 @@ describe('nested help routing', () => {
   for (const [argv, expectedUsage] of [
     [['adapt', '--help'], /Usage:\s*omx adapt <target> <probe\|status\|init\|envelope\|doctor>/i],
     [['ask', '--help'], /Usage:\s*omx ask <claude\|gemini> <question or task>/i],
+    [['brainstorm', '--help'], /omx brainstorm - Guided brainstorm artifact runtime/i],
     [['question', '--help'], /omx question - OMX-owned blocking user question entrypoint/i],
     [['ready', '--help'], /omx ready - Check install, auth, exec smoke, and platform runtime readiness/i],
     [['autoresearch', '--help'], /hard-deprecated legacy command surface[\s\S]*\$autoresearch/i],
