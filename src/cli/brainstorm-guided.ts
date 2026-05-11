@@ -37,6 +37,7 @@ export interface InitBrainstormOptions {
 	lang: BrainstormLanguage;
 	withClaude: boolean;
 	withGemini: boolean;
+	nonInteractive: boolean;
 	repoRoot: string;
 }
 
@@ -411,6 +412,8 @@ export function parseInitArgs(
 			result.withClaude = true;
 		} else if (arg === "--with-gemini") {
 			result.withGemini = true;
+		} else if (arg === "--non-interactive" || arg === "--quick") {
+			result.nonInteractive = true;
 		} else if (arg.startsWith("--idea=")) {
 			result.idea = arg.slice("--idea=".length);
 		} else if (arg.startsWith("--slug=")) {

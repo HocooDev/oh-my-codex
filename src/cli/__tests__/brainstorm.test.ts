@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
 	BRAINSTORM_HELP,
+	parseBrainstormApproveArgs,
 	parseBrainstormArgs,
 	parseBrainstormDoctorArgs,
 	parseBrainstormHistoryArgs,
@@ -113,6 +114,7 @@ describe("brainstorm CLI parsing", () => {
 			lang: undefined,
 			withClaude: false,
 			withGemini: false,
+			nonInteractive: false,
 		});
 		assert.deepEqual(
 			parseBrainstormResumeArgs([
@@ -127,7 +129,36 @@ describe("brainstorm CLI parsing", () => {
 				lang: "zh-CN",
 				withClaude: true,
 				withGemini: false,
+				nonInteractive: false,
 			},
+		);
+		assert.deepEqual(
+			parseBrainstormResumeArgs([
+				"--slug",
+				"search-ux",
+				"--non-interactive",
+			]),
+			{
+				slug: "search-ux",
+				lang: undefined,
+				withClaude: false,
+				withGemini: false,
+				nonInteractive: true,
+			},
+		);
+
+		// approve subcommand
+		assert.deepEqual(parseBrainstormArgs(["approve", "--slug", "search-ux"]), {
+			approve: true,
+			approveArgs: ["--slug", "search-ux"],
+		});
+		assert.deepEqual(parseBrainstormApproveArgs(["--slug", "search-ux"]), {
+			slug: "search-ux",
+			json: false,
+		});
+		assert.throws(
+			() => parseBrainstormApproveArgs(["--json"]),
+			/Missing required --slug/i,
 		);
 		assert.deepEqual(parseBrainstormListArgs(["--json"]), { json: true });
 		assert.deepEqual(parseBrainstormDoctorArgs(["--json"]), { json: true });
@@ -159,9 +190,11 @@ describe("brainstorm CLI parsing", () => {
 		);
 		assert.match(BRAINSTORM_HELP, /does not auto-launch/i);
 		assert.match(BRAINSTORM_HELP, /omx brainstorm resume --slug/i);
+		assert.match(BRAINSTORM_HELP, /omx brainstorm approve --slug/i);
 		assert.match(BRAINSTORM_HELP, /omx brainstorm list \[--json\]/i);
 		assert.match(BRAINSTORM_HELP, /omx brainstorm history --slug/i);
 		assert.match(BRAINSTORM_HELP, /omx brainstorm doctor \[--json\]/i);
+		assert.match(BRAINSTORM_HELP, /--non-interactive/i);
 	});
 });
 

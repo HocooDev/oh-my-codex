@@ -48,6 +48,7 @@ export interface BrainstormSeedInputs {
 	lang?: BrainstormLanguage;
 	withClaude?: boolean;
 	withGemini?: boolean;
+	nonInteractive?: boolean;
 	desiredOutcome?: string;
 	constraints?: string;
 	openQuestions?: string;

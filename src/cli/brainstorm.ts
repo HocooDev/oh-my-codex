@@ -8,6 +8,7 @@ import {
 } from "./brainstorm-guided.js";
 import {
 	type BrainstormAdvisorRuns,
+	type BrainstormApprovalState,
 	type BrainstormHistoryResult,
 	type BrainstormLanguage,
 	type BrainstormListResult,
@@ -15,18 +16,21 @@ import {
 	readBrainstormHistory,
 	type BrainstormStatusResult,
 	resolveBrainstormStatus,
+	writeBrainstormArtifact,
 } from "./brainstorm-intake.js";
 import {
 	diagnoseAllProviderAdvisors,
 	type ProviderAdvisorDoctorSummary,
 } from "./provider-advisor.js";
+import { readLatestBrainstormArtifactForSlug } from "./brainstorm-intake.js";
 
 export const BRAINSTORM_HELP = `omx brainstorm - Guided brainstorm artifact runtime
 
 Usage:
   omx brainstorm
-  omx brainstorm init [--idea <text>] [--slug <slug>] [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini]
-  omx brainstorm resume --slug <slug> [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini]
+  omx brainstorm init [--idea <text>] [--slug <slug>] [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini] [--non-interactive]
+  omx brainstorm resume --slug <slug> [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini] [--non-interactive]
+  omx brainstorm approve --slug <slug> [--json]
   omx brainstorm list [--json]
   omx brainstorm history --slug <slug> [--json]
   omx brainstorm status [--slug <slug> | --latest] [--json]
@@ -37,8 +41,10 @@ Notes:
   - \`omx brainstorm\` and \`omx brainstorm init\` are equivalent guided-entry forms.
   - This runtime writes/reuses brainstorm context + markdown artifacts and records handoff metadata only.
   - \`omx brainstorm resume\` always creates a new latest brainstorm artifact version for the slug.
+  - \`omx brainstorm approve\` marks a draft brainstorm artifact as approved without entering the interactive guided flow.
   - \`omx brainstorm list\` and \`omx brainstorm history\` browse canonical markdown artifacts under \`.omx/specs/\`.
   - \`omx brainstorm doctor\` preflights the local Claude/Gemini advisor surfaces without writing a brainstorm artifact.
+  - \`--non-interactive\` skips the guided TTY prompts and creates a seed draft directly (useful for CI and scripts).
   - \`--with-claude\` / \`--with-gemini\` run the corresponding local advisor CLI and save \`.omx/artifacts/ask-<provider>-...\` evidence.
   - Advisor failures are recorded and downgraded to warnings; they do not abort the brainstorm draft.
   - It does not auto-launch \`$deep-interview\`, \`$ralplan\`, \`$ralph\`, or \`$team\`.
@@ -57,6 +63,8 @@ export interface ParsedBrainstormArgs {
 	historyArgs?: string[];
 	status?: boolean;
 	statusArgs?: string[];
+	approve?: boolean;
+	approveArgs?: string[];
 	doctor?: boolean;
 	doctorArgs?: string[];
 }
@@ -84,6 +92,13 @@ export interface ParsedBrainstormResumeArgs {
 	lang?: BrainstormLanguage;
 	withClaude: boolean;
 	withGemini: boolean;
+	nonInteractive: boolean;
+	help?: boolean;
+}
+
+export interface ParsedBrainstormApproveArgs {
+	slug: string | null;
+	json: boolean;
 	help?: boolean;
 }
 
@@ -410,6 +425,9 @@ export function parseBrainstormArgs(
 	if (first === "doctor") {
 		return { doctor: true, doctorArgs: values.slice(1) };
 	}
+	if (first === "approve") {
+		return { approve: true, approveArgs: values.slice(1) };
+	}
 	if (first === "init") {
 		return {
 			guided: true,
@@ -546,6 +564,7 @@ export function parseBrainstormResumeArgs(
 	let lang: BrainstormLanguage | undefined;
 	let withClaude = false;
 	let withGemini = false;
+	let nonInteractive = false;
 
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index]!;
@@ -589,8 +608,12 @@ export function parseBrainstormResumeArgs(
 			withGemini = true;
 			continue;
 		}
+		if (arg === "--non-interactive" || arg === "--quick") {
+			nonInteractive = true;
+			continue;
+		}
 		if (arg === "--help" || arg === "-h" || arg === "help") {
-			return { slug: null, lang, withClaude, withGemini, help: true };
+			return { slug: null, lang, withClaude, withGemini, nonInteractive, help: true };
 		}
 		if (arg === "--latest") {
 			throw new Error("Resume requires --slug <slug>; --latest is not supported.");
@@ -602,7 +625,45 @@ export function parseBrainstormResumeArgs(
 		throw new Error("Missing required --slug <slug>.");
 	}
 
-	return { slug, lang, withClaude, withGemini };
+	return { slug, lang, withClaude, withGemini, nonInteractive };
+}
+
+export function parseBrainstormApproveArgs(
+	args: readonly string[],
+): ParsedBrainstormApproveArgs {
+	let slug: string | null = null;
+	let json = false;
+
+	for (let index = 0; index < args.length; index += 1) {
+		const arg = args[index]!;
+		const next = args[index + 1];
+		if (arg === "--slug") {
+			if (!next || next.startsWith("--")) {
+				throw new Error("Missing value for --slug.");
+			}
+			slug = next.trim();
+			index += 1;
+			continue;
+		}
+		if (arg.startsWith("--slug=")) {
+			slug = arg.slice("--slug=".length).trim();
+			continue;
+		}
+		if (arg === "--json") {
+			json = true;
+			continue;
+		}
+		if (arg === "--help" || arg === "-h" || arg === "help") {
+			return { slug: null, json, help: true };
+		}
+		throw new Error(`Unknown brainstorm approve flag: ${arg.split("=")[0]}`);
+	}
+
+	if (!slug) {
+		throw new Error("Missing required --slug <slug>.");
+	}
+
+	return { slug, json };
 }
 
 function printHumanStatus(status: BrainstormStatusResult): void {
@@ -691,6 +752,7 @@ function normalizeSeedArgs(
 	lang?: BrainstormLanguage;
 	withClaude?: boolean;
 	withGemini?: boolean;
+	nonInteractive?: boolean;
 } {
 	return {
 		idea: seedArgs?.idea,
@@ -698,6 +760,7 @@ function normalizeSeedArgs(
 		lang: seedArgs?.lang,
 		withClaude: seedArgs?.withClaude,
 		withGemini: seedArgs?.withGemini,
+		nonInteractive: seedArgs?.nonInteractive,
 	};
 }
 
@@ -812,7 +875,8 @@ export async function brainstormCommand(args: string[]): Promise<void> {
 			withClaude: resumeArgs.withClaude,
 			withGemini: resumeArgs.withGemini,
 		};
-		const result = !process.stdin.isTTY
+		const isNonInteractive = !process.stdin.isTTY || resumeArgs.nonInteractive;
+		const result = isNonInteractive
 			? await createResumedBrainstormDraft(process.cwd(), resumeInput)
 			: await resumeBrainstormSetup(process.cwd(), resumeInput);
 		if (result.resumeNote) {
@@ -831,12 +895,66 @@ export async function brainstormCommand(args: string[]): Promise<void> {
 		return;
 	}
 
+	if (parsed.approve) {
+		const approveArgs = parseBrainstormApproveArgs(parsed.approveArgs ?? []);
+		if (approveArgs.help) {
+			console.log(BRAINSTORM_HELP);
+			return;
+		}
+		const slug = approveArgs.slug ?? "";
+		const existing = readLatestBrainstormArtifactForSlug(process.cwd(), slug);
+		if (!existing) {
+			throw new Error(`No brainstorm artifact found for slug "${slug}".`);
+		}
+		const idea = existing.originalIdeaSection?.trim() || existing.title?.replace(/^#+\s*Brainstorm Report:\s*/i, "").trim() || slug;
+		const result = await writeBrainstormArtifact({
+			repoRoot: process.cwd(),
+			idea,
+			slug,
+			desiredOutcome: existing.currentUnderstandingSection?.trim(),
+			constraints: existing.constraintsSection?.trim(),
+			openQuestions: existing.openQuestionsSection?.trim(),
+			advisorFlags: {
+				withClaude: existing.advisorRuns?.claude.enabled === true,
+				withGemini: existing.advisorRuns?.gemini.enabled === true,
+			},
+			advisorRuns: existing.advisorRuns,
+			approvalState: "approved_for_ralplan",
+			forceNewArtifact: true,
+		});
+		if (approveArgs.json) {
+			console.log(
+				JSON.stringify(
+					{
+						slug: result.compileTarget.slug,
+						artifactPath: result.path,
+						approvalState: result.approvalState,
+						recommendedNextSkill: result.recommendedNextSkill,
+						selectedNextSkill: result.selectedNextSkill,
+						artifactStatus: result.artifactStatus,
+					},
+					null,
+					2,
+				),
+			);
+			return;
+		}
+		await printDraftResult({
+			slug: result.compileTarget.slug,
+			brainstormArtifactPath: result.path,
+			approvalState: result.approvalState,
+			selectedNextSkill: result.selectedNextSkill,
+			advisorRuns: result.advisorRuns,
+		});
+		return;
+	}
+
 	if (!parsed.guided) {
 		console.log(BRAINSTORM_HELP);
 		return;
 	}
 
-	if (!process.stdin.isTTY) {
+	if (!process.stdin.isTTY || parsed.seedArgs?.nonInteractive) {
 		const seedArgs = normalizeSeedArgs(parsed.seedArgs);
 		if (!seedArgs.idea?.trim()) {
 			throw new Error(

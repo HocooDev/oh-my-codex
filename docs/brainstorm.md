@@ -30,8 +30,9 @@ surface:
 ## Command summary
 
 ```bash
-omx brainstorm init [--idea <text>] [--slug <slug>] [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini]
-omx brainstorm resume --slug <slug> [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini]
+omx brainstorm init [--idea <text>] [--slug <slug>] [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini] [--non-interactive]
+omx brainstorm resume --slug <slug> [--lang <auto|en|zh-CN|zh-TW>] [--with-claude] [--with-gemini] [--non-interactive]
+omx brainstorm approve --slug <slug> [--json]
 omx brainstorm status [--slug <slug> | --latest] [--json]
 omx brainstorm doctor [--json]
 omx brainstorm list [--json]
@@ -44,7 +45,8 @@ Creates a new brainstorm draft.
 
 - interactive when run in a TTY
 - non-interactive when `--idea` is provided
-- writes markdown + context snapshot + brainstorm state
+- write markdown + context snapshot + brainstorm state
+- `--non-interactive` / `--quick` skips the guided TTY prompts and creates a seed draft directly (useful for CI and scripts)
 
 ### `resume`
 
@@ -56,6 +58,18 @@ Continues an existing brainstorm by slug.
 - does **not** overwrite the prior artifact revision
 - if the previous artifact was approved, the new resumed artifact starts from
   `draft` again
+- `--non-interactive` / `--quick` skips the guided TTY prompts (useful for CI and scripts)
+
+### `approve`
+
+Marks a draft brainstorm artifact as approved without entering the interactive
+guided flow.
+
+- requires `--slug`
+- reads the existing artifact's idea, desired outcome, constraints, and advisor context
+- writes a **new timestamped artifact** marked as `approved_for_ralplan`
+- use `--json` for machine-readable output
+- the approved artifact can be consumed by `$ralplan --from-design`
 
 ### `status`
 
