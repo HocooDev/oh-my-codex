@@ -1,5 +1,6 @@
 import { join } from "path";
 import type { UnifiedMcpRegistryServer } from "./mcp-registry.js";
+import { resolveCommandPathForPlatform } from "../utils/platform-command.js";
 
 export const OMX_PLUGIN_MCP_COMMAND = "omx";
 export const OMX_PLUGIN_MCP_SERVE_SUBCOMMAND = "mcp-serve";
@@ -76,8 +77,11 @@ export function resolveOmxFirstPartyMcpEntrypointForPluginTarget(
   return spec?.entrypoint ?? null;
 }
 
-export function getCurrentNodeExecutablePath(): string {
-  return process.execPath;
+export function getCurrentNodeExecutablePath(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return resolveCommandPathForPlatform("node", platform, env) ?? process.execPath;
 }
 
 export function getOmxFirstPartySetupMcpServers(

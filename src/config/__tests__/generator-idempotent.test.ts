@@ -10,6 +10,7 @@ import { isAbsolute, join } from "node:path";
 import TOML from "@iarna/toml";
 import { buildMergedConfig, cleanCodexModelAvailabilityNuxIfNeeded, mergeConfig, repairConfigIfNeeded } from "../generator.js";
 import { OMX_FIRST_PARTY_MCP_SERVER_NAMES } from "../omx-first-party-mcp.js";
+import { resolveCommandPathForPlatform } from "../../utils/platform-command.js";
 
 /** Count occurrences of a pattern in text */
 function count(text: string, pattern: RegExp): number {
@@ -109,12 +110,13 @@ function assertSingleOmxBlock(toml: string): void {
   const parsed = TOML.parse(toml) as {
     mcp_servers?: Record<string, { command?: unknown }>;
   };
+  const expectedNodeCommand = resolveCommandPathForPlatform("node") ?? process.execPath;
   for (const name of OMX_FIRST_PARTY_MCP_SERVER_NAMES) {
     const command = parsed.mcp_servers?.[name]?.command;
     assert.equal(
       command,
-      process.execPath,
-      `[mcp_servers.${name}] should use the Node executable that ran setup`,
+      expectedNodeCommand,
+      `[mcp_servers.${name}] should use a stable absolute Node launcher`,
     );
     assert.notEqual(
       command,

@@ -15,6 +15,7 @@ import {
 } from "../utils/paths.js";
 import {
 	classifySpawnError,
+	resolveCommandPathForPlatform,
 	spawnPlatformCommandSync,
 } from "../utils/platform-command.js";
 import { getCatalogExpectations } from "./catalog-contract.js";
@@ -1407,6 +1408,52 @@ async function checkMcpServers(
 				status: "pass",
 				message:
 					"plugin mode uses plugin-scoped MCP metadata; setup-owned OMX MCP tables are intentionally omitted",
+			};
+		}
+		const parsed = parseToml(content) as {
+			mcp_servers?: Record<string, { command?: unknown }>;
+		};
+		const commandsByName = OMX_FIRST_PARTY_MCP_SERVER_NAMES.map((name) => ({
+			name,
+			command:
+				typeof parsed.mcp_servers?.[name]?.command === "string"
+					? String(parsed.mcp_servers?.[name]?.command).trim()
+					: "",
+		})).filter(
+			(entry): entry is { name: string; command: string } => entry.command !== "",
+		);
+		const commandsToProbe = new Map<string, string[]>();
+		for (const entry of commandsByName) {
+			const names = commandsToProbe.get(entry.command) ?? [];
+			names.push(entry.name);
+			commandsToProbe.set(entry.command, names);
+		}
+		const brokenLaunchers: string[] = [];
+		const currentPathNode = resolveCommandPathForPlatform("node");
+		for (const [command, names] of commandsToProbe.entries()) {
+			const { result } = spawnPlatformCommandSync(command, ["--version"], {
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+			if (!result.error && result.status === 0) continue;
+			const detail =
+				result.error?.message
+				|| (result.stderr || "").trim()
+				|| (result.stdout || "").trim()
+				|| `exit ${result.status ?? "unknown"}`;
+			const pathHint =
+				currentPathNode && currentPathNode !== command
+					? `; current PATH node is ${currentPathNode}`
+					: "";
+			brokenLaunchers.push(
+				`${names.join(", ")} launcher ${command} failed to execute (${detail})${pathHint}`,
+			);
+		}
+		if (brokenLaunchers.length > 0) {
+			return {
+				name: "MCP Servers",
+				status: "fail",
+				message: `${brokenLaunchers.join("; ")}; run "omx setup --force" to refresh the config`,
 			};
 		}
 		if (mcpCount > 0) {

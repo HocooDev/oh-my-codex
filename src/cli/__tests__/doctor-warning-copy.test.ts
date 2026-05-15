@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+	chmod,
 	mkdir,
 	mkdtemp,
 	readFile,
@@ -141,6 +142,45 @@ command = "node"
 			assert.match(
 				res.stdout,
 				/MCP Servers: 1 servers but no OMX servers yet \(expected before first setup; run "omx setup --force" once\)/,
+			);
+		} finally {
+			await rm(wd, { recursive: true, force: true });
+		}
+	});
+
+	it("fails when configured OMX MCP launchers cannot execute", async () => {
+		const wd = await mkdtemp(join(tmpdir(), "omx-doctor-broken-mcp-"));
+		try {
+			const home = join(wd, "home");
+			const codexDir = join(home, ".codex");
+			const binDir = join(wd, "bin");
+			const brokenNode = join(binDir, "broken-node");
+			await mkdir(codexDir, { recursive: true });
+			await mkdir(binDir, { recursive: true });
+			await writeFile(
+				brokenNode,
+				"#!/bin/sh\necho 'dyld: simulated broken node launcher' >&2\nexit 134\n",
+			);
+			await chmod(brokenNode, 0o755);
+			await writeFile(
+				join(codexDir, "config.toml"),
+				`
+[mcp_servers.omx_state]
+command = "${brokenNode}"
+args = ["./dist/mcp/state-server.js"]
+enabled = true
+`.trimStart(),
+			);
+
+			const res = runOmx(wd, ["doctor"], {
+				HOME: home,
+				CODEX_HOME: join(home, ".codex"),
+			});
+			if (shouldSkipForSpawnPermissions(res.error)) return;
+			assert.equal(res.status, 0, res.stderr || res.stdout);
+			assert.match(
+				res.stdout,
+				/MCP Servers: omx_state launcher .* failed to execute .*run "omx setup --force" to refresh the config/,
 			);
 		} finally {
 			await rm(wd, { recursive: true, force: true });
